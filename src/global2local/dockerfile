@@ -1,0 +1,15 @@
+FROM 10.88.115.8:5002/base/global2local-ros2-base:v1.0.0
+
+RUN git clone https://caileilei:1234abcD*@git.cnaeit.com/XJSF/product_group/core-library/msg_set_msgs.git
+RUN cd msg_set_msgs && git pull
+
+COPY ./src/ /global2local_ws/src/global2local/src/
+COPY ./launch/ /global2local_ws/src/global2local/launch/
+COPY ./include/ /global2local_ws/src/global2local/include/
+COPY ./package.xml /global2local_ws/src/global2local/
+COPY ./CMakeLists.txt /global2local_ws/src/global2local/
+
+RUN cp -rf /msg_set_msgs /global2local_ws/src
+COPY ./start-docker.sh /global2local_ws/
+
+RUN /bin/bash -c '. /opt/ros/foxy/setup.bash; cd /global2local_ws; colcon build'
