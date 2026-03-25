@@ -1,0 +1,29 @@
+/**
+ * Navigation parameters for waypoint navigation
+ */
+
+waypoint_navigator:
+  ros__parameters:
+    # Tolerance for reaching a goal (meters)
+    goal_tolerance: 1.0
+
+    # Tolerance for yaw angle (radians)
+    yaw_tolerance: 0.2
+
+    # Linear velocity (m/s)
+    linear_velocity: 1.0
+
+    # Angular velocity limit (rad/s)
+    angular_velocity_limit: 1.0
+
+    # Control frequency (Hz)
+    control_frequency: 10.0
+
+    # Lookahead distance for path following (meters)
+    lookahead_distance: 2.0
+
+    # Costmap parameters for obstacle avoidance (simplified)
+    robot_radius: 0.5
+    transform_tolerance: 0.2
+    update_frequency: 5.0
+    publish_frequency: 5.0

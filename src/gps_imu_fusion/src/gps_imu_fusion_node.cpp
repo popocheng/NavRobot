@@ -1,0 +1,189 @@
+#include <memory>
+#include <vector>
+#include <mutex>
+
+#include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/nav_sat_fix.hpp"
+#include "sensor_msgs/msg/imu.hpp"
+#include "nav_msgs/msg/odometry.hpp"
+#include "geometry_msgs/msg/transform_stamped.hpp"
+#include "tf2/LinearMath/Quaternion.h"
+#include "tf2/LinearMath/Matrix3x3.h"
+#include "tf2_ros/transform_broadcaster.h"
+#include "GeographicLib/LocalCartesian.hpp"
+
+class GpsImuFusionNode : public rclcpp::Node
+{
+public:
+  GpsImuFusionNode() : Node("gps_imu_fusion_node")
+  {
+    // Initialize the orientation to represent no rotation (identity quaternion)
+    current_orientation_.x = 0.0;
+    current_orientation_.y = 0.0;
+    current_orientation_.z = 0.0;
+    current_orientation_.w = 1.0;
+
+    // Declare parameters for origin
+    this->declare_parameter("origin_lat", 37.7749);  // Default to San Francisco as example
+    this->declare_parameter("origin_lon", -122.4194);
+    this->declare_parameter("origin_alt", 0.0);
+
+    // Get parameters
+    this->get_parameter("origin_lat", origin_lat_);
+    this->get_parameter("origin_lon", origin_lon_);
+    this->get_parameter("origin_alt", origin_alt_);
+
+    // Initialize GeographicLib converter
+    geo_converter_.reset(new GeographicLib::LocalCartesian(origin_lat_, origin_lon_, origin_alt_));
+
+    // Initialize subscribers
+    gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
+      "/gps/data", 10,
+      std::bind(&GpsImuFusionNode::gpsCallback, this, std::placeholders::_1));
+
+    imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
+      "/imu", 10,
+      std::bind(&GpsImuFusionNode::imuCallback, this, std::placeholders::_1));
+
+    // Initialize publisher
+    odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("/world_odom", 10);
+
+    // Initialize TF broadcaster
+    tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+
+    // Initialize timers for periodic publishing
+    odom_timer_ = this->create_wall_timer(
+      std::chrono::milliseconds(100),  // 10 Hz
+      std::bind(&GpsImuFusionNode::publishOdomAndTf, this));
+
+    RCLCPP_INFO(this->get_logger(), "GPS/IMU Fusion Node initialized with origin: lat=%.6f, lon=%.6f, alt=%.2f",
+                origin_lat_, origin_lon_, origin_alt_);
+  }
+
+private:
+  void gpsCallback(const sensor_msgs::msg::NavSatFix::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+
+    // Convert GPS coordinates to local cartesian coordinates (ENU: East, North, Up)
+    double local_x, local_y, local_z;
+    geo_converter_->Forward(msg->latitude, msg->longitude, msg->altitude, local_x, local_y, local_z); // ENU: x=E, y=N, z=U
+
+    // Update our stored pose with the new GPS data
+    current_x_ = local_x;  // E (East) - corresponds to +X
+    current_y_ = local_y;  // N (North) - corresponds to +Y
+    current_z_ = local_z;  // U (Up) - corresponds to +Z
+
+    gps_received_ = true;
+
+    RCLCPP_DEBUG(this->get_logger(), "GPS updated: x(East)=%.2f, y(North)=%.2f, z(Up)=%.2f", current_x_, current_y_, current_z_);
+  }
+
+  void imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+
+    // Extract orientation from IMU
+    current_orientation_ = msg->orientation;
+
+    // For future improvement: use IMU angular rates to predict orientation changes
+    // between GPS updates
+    imu_received_ = true;
+
+    RCLCPP_DEBUG(this->get_logger(), "IMU updated: orientation updated");
+  }
+
+  void publishOdomAndTf()
+  {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+
+    if (!gps_received_ && !imu_received_) {
+      return;  // Need at least one type of data to publish
+    }
+
+    // Create odometry message
+    auto odom_msg = nav_msgs::msg::Odometry();
+    odom_msg.header.stamp = this->now();
+    odom_msg.header.frame_id = "world";  // Fixed world frame
+    odom_msg.child_frame_id = "robot_base";  // Robot frame
+
+    // Position
+    odom_msg.pose.pose.position.x = current_x_;  // E (East)
+    odom_msg.pose.pose.position.y = current_y_;  // N (North)
+    odom_msg.pose.pose.position.z = current_z_;  // U (Up)
+
+    // Orientation - use IMU if available, otherwise keep last value
+    if (imu_received_) {
+      odom_msg.pose.pose.orientation = current_orientation_;
+    } else {
+      odom_msg.pose.pose.orientation = current_orientation_;
+    }
+
+    // For now, zero velocity - in a real system, this would be estimated
+    odom_msg.twist.twist.linear.x = 0.0;
+    odom_msg.twist.twist.linear.y = 0.0;
+    odom_msg.twist.twist.linear.z = 0.0;
+    odom_msg.twist.twist.angular.x = 0.0;
+    odom_msg.twist.twist.angular.y = 0.0;
+    odom_msg.twist.twist.angular.z = 0.0;
+
+    // Publish odometry
+    odom_pub_->publish(odom_msg);
+
+    // Create and broadcast TF transform
+    geometry_msgs::msg::TransformStamped t;
+    t.header.stamp = this->now();
+    t.header.frame_id = "world";
+    t.child_frame_id = "robot_base";
+
+    t.transform.translation.x = current_x_;
+    t.transform.translation.y = current_y_;
+    t.transform.translation.z = current_z_;
+
+    t.transform.rotation = current_orientation_;
+
+    tf_broadcaster_->sendTransform(t);
+
+    RCLCPP_DEBUG(this->get_logger(), "Published odom and TF: x=%.2f, y=%.2f, z=%.2f", current_x_, current_y_, current_z_);
+  }
+
+  // Subscribers
+  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
+
+  // Publisher
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
+
+  // TF broadcaster
+  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+
+  // Timer
+  rclcpp::TimerBase::SharedPtr odom_timer_;
+
+  // Data storage
+  double current_x_{0.0};
+  double current_y_{0.0};
+  double current_z_{0.0};
+  geometry_msgs::msg::Quaternion current_orientation_;  // Default: no rotation (will be initialized in constructor)
+  bool gps_received_{false};
+  bool imu_received_{false};
+
+  // Origin coordinates for local cartesian conversion
+  double origin_lat_{0.0};
+  double origin_lon_{0.0};
+  double origin_alt_{0.0};
+
+  // GeographicLib converter
+  std::unique_ptr<GeographicLib::LocalCartesian> geo_converter_;
+
+  // Mutex for thread safety
+  std::mutex data_mutex_;
+};
+
+int main(int argc, char * argv[])
+{
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<GpsImuFusionNode>());
+  rclcpp::shutdown();
+  return 0;
+}
