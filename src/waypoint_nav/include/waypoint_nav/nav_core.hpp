@@ -19,6 +19,9 @@
 # include "tf2/LinearMath/Quaternion.h"
 # include "tf2/utils.h"
 # include "GeographicLib/LocalCartesian.hpp"
+# include "visualization_msgs/msg/marker.hpp"
+# include "visualization_msgs/msg/marker_array.hpp"
+# include "nav_msgs/msg/path.hpp"
 
 namespace waypoint_nav {
 
@@ -45,6 +48,7 @@ public:
   bool isGoalReached(double tolerance = 1.0) const;
   geometry_msgs::msg::Twist computeVelocityCommand();
   void initializeOrientationEstimate();
+  void resetNavigator();  // Reset navigator after task completion
 
   // TODO: Implement method to interface with global2local package
   // As mentioned in the requirements: "analyze '/home/lenovo/Projects/robotdog_nav/src/global2local'
@@ -54,6 +58,13 @@ public:
   // Accessors for state
   NavigationState getState() const { return nav_state_; }
   void setState(NavigationState state) { nav_state_ = state; }
+
+  // Visualization methods
+  void publishVisualizations();
+  void publishWaypointMarkers();
+  void publishPathMarkers();
+  void publishActualPath();
+  void clearActualPath();
 
 private:
   void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
@@ -75,6 +86,11 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
 
+  // Visualization publishers
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr waypoint_marker_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr path_marker_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr actual_path_pub_;
+
   // State variables
   NavigationState nav_state_;
   std::vector<msg_set_msgs::msg::MultiGoalPoint> waypoints_;
@@ -83,6 +99,10 @@ private:
   double estimated_yaw_;
   bool initial_yaw_estimated_;
   bool has_new_odom_data_;
+
+  // Visualization related
+  std::vector<geometry_msgs::msg::PoseStamped> actual_path_;
+  mutable std::mutex path_mutex_;
 
   // Allow access to these members from friend classes
   friend class NavWaypointNode;

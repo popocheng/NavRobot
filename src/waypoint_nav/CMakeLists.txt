@@ -12,6 +12,7 @@ find_package(rclcpp_components REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -43,6 +44,7 @@ ament_target_dependencies(nav_core
   sensor_msgs
   geometry_msgs
   nav_msgs
+  visualization_msgs
   tf2
   tf2_ros
   msg_set_msgs
@@ -75,6 +77,7 @@ ament_target_dependencies(nav_waypoint_node
   sensor_msgs
   geometry_msgs
   nav_msgs
+  visualization_msgs
   tf2
   tf2_ros
   message_filters
@@ -101,6 +104,11 @@ install(DIRECTORY include/
 # Install launch files
 install(DIRECTORY launch/
   DESTINATION share/${PROJECT_NAME}/launch
+)
+
+# Install config files
+install(DIRECTORY config/
+  DESTINATION share/${PROJECT_NAME}/config
 )
 
 ament_export_dependencies(ament_cmake)

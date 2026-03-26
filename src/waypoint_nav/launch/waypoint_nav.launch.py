@@ -37,7 +37,21 @@ def generate_launch_description():
         ]
     )
 
+    # RViz2 node to visualize navigation
+    rviz_node = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        arguments=['-d', os.path.join(
+            get_package_share_directory('waypoint_nav'),
+            'config',
+            'nav_visualization.rviz'
+        )],
+        output='screen'
+    )
+
     return LaunchDescription([
         gps_imu_fusion_node,
-        waypoint_nav_node
+        waypoint_nav_node,
+        rviz_node
     ])

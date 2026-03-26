@@ -86,6 +86,9 @@ private:
   {
     std::lock_guard<std::mutex> lock(data_mutex_);
 
+    // Store the IMU timestamp
+    latest_timestamp_ = msg->header.stamp;
+
     // Apply yaw offset to the IMU orientation
     tf2::Quaternion imu_quat, yaw_quat, result_quat;
 
@@ -121,7 +124,12 @@ private:
 
     // Create odometry message
     auto odom_msg = nav_msgs::msg::Odometry();
-    odom_msg.header.stamp = this->now();
+    // Use IMU's latest timestamp if available, otherwise use current time
+    if (imu_received_) {
+      odom_msg.header.stamp = latest_timestamp_;
+    } else {
+      odom_msg.header.stamp = this->now();
+    }
     odom_msg.header.frame_id = "world";  // Fixed world frame
     odom_msg.child_frame_id = "base_link";  // Robot frame
 
@@ -153,9 +161,14 @@ private:
 
     // Create and broadcast TF transform
     geometry_msgs::msg::TransformStamped t;
-    t.header.stamp = this->now();
+    // Use IMU's latest timestamp if available, otherwise use current time
+    if (imu_received_) {
+      t.header.stamp = latest_timestamp_;
+    } else {
+      t.header.stamp = this->now();
+    }
     t.header.frame_id = "world";
-    t.child_frame_id = "robot_base";
+    t.child_frame_id = "base_link";
 
     t.transform.translation.x = current_x_;
     t.transform.translation.y = current_y_;
@@ -186,6 +199,7 @@ private:
   double current_y_{0.0};
   double current_z_{0.0};
   geometry_msgs::msg::Quaternion current_orientation_;  // Default: no rotation (will be initialized in constructor)
+  builtin_interfaces::msg::Time latest_timestamp_{};
   bool gps_received_{false};
   bool imu_received_{false};
 

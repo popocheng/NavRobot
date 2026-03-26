@@ -1,6 +1,6 @@
 # Navigation parameters for waypoint navigation
 
-waypoint_navigator:
+nav_waypoint_node:
   ros__parameters:
     origin_lat: 0.0  # Latitude of origin point
     origin_lon: 0.0  # Longitude of origin point
@@ -10,10 +10,10 @@ waypoint_navigator:
     goal_tolerance: 1.0
 
     # Tolerance for yaw angle (radians)
-    yaw_tolerance: 0.2
+    yaw_tolerance: 0.8
 
     # Linear velocity (m/s)
-    linear_velocity: 1.0
+    linear_velocity: 0.8
 
     # Angular velocity limit (rad/s)
     angular_velocity_limit: 1.0

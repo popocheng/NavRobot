@@ -24,10 +24,8 @@ public:
     // Initialize state publisher
     state_publisher_ = this->create_publisher<std_msgs::msg::String>("/nav_status", 10);
 
-    // TODO: Implement service for querying navigation status
-    // As mentioned in the requirements: "Status topic or service, you define yourself,
-    // for querying the current task status, including waiting, executing, failed, completed, etc."
-    // This could be implemented as a service server alongside or instead of the status topic
+    // Transition to waiting for goals state immediately after initialization
+    fsm_.transitToWaitingForGoals();
 
     RCLCPP_INFO(this->get_logger(), "Nav Waypoint Node initialized");
   }
@@ -75,6 +73,9 @@ private:
     if (fsm_.isNavigating()) {
       geometry_msgs::msg::Twist cmd_vel = navigator_.computeVelocityCommand();
 
+      // RCLCPP_DEBUG(this->get_logger(), "Publishing cmd_vel: linear.x=%.3f, angular.z=%.3f",
+      //             cmd_vel.linear.x, cmd_vel.angular.z);
+
       // In a real implementation, you'd check for obstacles here and possibly modify cmd_vel
       // For now, just publish the computed velocity
       if (!cmd_vel_publisher_) {
@@ -82,22 +83,30 @@ private:
       }
       cmd_vel_publisher_->publish(cmd_vel);
     }
+
+    // Publish visualization markers
+    navigator_.publishVisualizations();
   }
 
   void handleIdleState()
   {
+    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000 /*ms*/, "Handling IDLE state");
+
     // Wait for waypoints to be received
     if (!navigator_.waypoints_.empty()) {
+      RCLCPP_INFO(this->get_logger(), "Waypoints received in IDLE, triggering onGoalsReceived");
       fsm_.onGoalsReceived();
     }
   }
 
   void handleWaitingForGoalsState()
   {
+    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000 /*ms*/, "Handling WAITING_FOR_GOALS state");
+
     // Wait for goals to arrive
     if (!navigator_.waypoints_.empty()) {
-      navigator_.setState(NavigationState::EXECUTING);
-      fsm_.onNavigationStart();  // This should transition to EXECUTING_PATH
+      RCLCPP_INFO(this->get_logger(), "Waypoints received in WAITING_FOR_GOALS, triggering onGoalsReceived");
+      fsm_.onGoalsReceived();  // This should transition to INITIALIZING
     }
   }
 
@@ -112,18 +121,24 @@ private:
 
   void handleExecutingPathState()
   {
+    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000 /*ms*/, "Handling EXECUTING_PATH state");
+
     // Check if current goal is reached
     if (navigator_.isGoalReached(navigator_.goal_tolerance_)) {
       RCLCPP_INFO(this->get_logger(), "Reached goal %zu", navigator_.current_goal_index_);
 
       // Move to next goal if available
       navigator_.current_goal_index_++;
+      RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000 /*ms*/, "Moving to next goal, current index: %zu (of %zu total)",
+                           navigator_.current_goal_index_, navigator_.waypoints_.size());
 
       if (navigator_.current_goal_index_ >= navigator_.waypoints_.size()) {
         // All goals completed
+        RCLCPP_INFO(this->get_logger(), "All goals completed, triggering onCompletion");
         fsm_.onCompletion();
       } else {
         // Continue to next goal
+        RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000 /*ms*/, "Continuing to next goal");
         fsm_.onGoalReached();
 
         // Brief pause before moving to next goal, then continue executing
@@ -194,7 +209,10 @@ private:
 
     RCLCPP_INFO(this->get_logger(), "Navigation completed successfully!");
 
-    // Stay in completed state
+    // Reset the navigator to clear history and waypoints
+    navigator_.resetNavigator();
+
+    fsm_.transitToWaitingForGoals();
   }
 
   WaypointNavigator navigator_;
