@@ -6,8 +6,8 @@
 
 namespace waypoint_nav {
 
-WaypointNavigator::WaypointNavigator(const rclcpp::NodeOptions & options)
-: Node("waypoint_navigator", options),
+WaypointNavigator::WaypointNavigator(rclcpp::Node* node_ptr)
+: node_(node_ptr),
   nav_state_(NavigationState::IDLE),
   current_goal_index_(0),
   estimated_yaw_(0.0),
@@ -15,39 +15,49 @@ WaypointNavigator::WaypointNavigator(const rclcpp::NodeOptions & options)
   has_new_odom_data_(false)
 {
   // Declare parameters
-  this->declare_parameter("goal_tolerance", 1.0);
-  this->declare_parameter("yaw_tolerance", 0.2);
-  this->declare_parameter("linear_velocity", 1.0);
-  this->declare_parameter("angular_velocity_limit", 1.0);
-  this->declare_parameter("control_frequency", 10.0);
-  this->declare_parameter("lookahead_distance", 2.0);
+  node_->declare_parameter("goal_tolerance", 1.0);
+  node_->declare_parameter("yaw_tolerance", 0.2);
+  node_->declare_parameter("linear_velocity", 1.0);
+  node_->declare_parameter("angular_velocity_limit", 1.0);
+  node_->declare_parameter("control_frequency", 10.0);
+  node_->declare_parameter("lookahead_distance", 2.0);
+  node_->declare_parameter("origin_lat", 0.0);  // Origin latitude
+  node_->declare_parameter("origin_lon", 0.0);  // Origin longitude
+  node_->declare_parameter("origin_alt", 0.0);  // Origin altitude
 
   // Get parameters
-  this->get_parameter("goal_tolerance", goal_tolerance_);
-  this->get_parameter("yaw_tolerance", yaw_tolerance_);
-  this->get_parameter("linear_velocity", linear_velocity_);
-  this->get_parameter("angular_velocity_limit", angular_velocity_limit_);
-  this->get_parameter("control_frequency", control_frequency_);
-  this->get_parameter("lookahead_distance", lookahead_distance_);
+  node_->get_parameter("goal_tolerance", goal_tolerance_);
+  node_->get_parameter("yaw_tolerance", yaw_tolerance_);
+  node_->get_parameter("linear_velocity", linear_velocity_);
+  node_->get_parameter("angular_velocity_limit", angular_velocity_limit_);
+  node_->get_parameter("control_frequency", control_frequency_);
+  node_->get_parameter("lookahead_distance", lookahead_distance_);
+  node_->get_parameter("origin_lat", origin_lat_);
+  node_->get_parameter("origin_lon", origin_lon_);
+  node_->get_parameter("origin_alt", origin_alt_);
+
+  // Initialize GeographicLib converter with origin coordinates
+  geo_converter_.reset(new GeographicLib::LocalCartesian(origin_lat_, origin_lon_, origin_alt_));
 
   // Initialize subscribers - subscribe to world_odom instead of direct GPS and IMU
-  odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+  odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
     "/world_odom", 10,
     std::bind(&WaypointNavigator::odomCallback, this, std::placeholders::_1));
 
-  lidar_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
+  lidar_sub_ = node_->create_subscription<sensor_msgs::msg::PointCloud2>(
     "/livox/lidar", 10,
     std::bind(&WaypointNavigator::lidarCallback, this, std::placeholders::_1));
 
-  goal_sub_ = this->create_subscription<msg_set_msgs::msg::MultiGoal>(
+  goal_sub_ = node_->create_subscription<msg_set_msgs::msg::MultiGoal>(
     "/waypoint_goals", 10,
     std::bind(&WaypointNavigator::goalCallback, this, std::placeholders::_1));
 
   // Initialize publishers
-  cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
-  status_pub_ = this->create_publisher<std_msgs::msg::String>("/nav_status", 10);
+  cmd_vel_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+  status_pub_ = node_->create_publisher<std_msgs::msg::String>("/nav_status", 10);
 
-  RCLCPP_INFO(this->get_logger(), "Waypoint Navigator initialized");
+  RCLCPP_INFO(node_->get_logger(), "Waypoint Navigator initialized with origin: lat=%.6f, lon=%.6f, alt=%.2f",
+              origin_lat_, origin_lon_, origin_alt_);
 }
 
 void WaypointNavigator::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
@@ -73,14 +83,14 @@ void WaypointNavigator::odomCallback(const nav_msgs::msg::Odometry::SharedPtr ms
   if (!initial_yaw_estimated_) {
     estimated_yaw_ = current_pose_.roll;
     initial_yaw_estimated_ = true;
-    RCLCPP_INFO(this->get_logger(), "Initial orientation estimated: %.3f rad", estimated_yaw_);
+    RCLCPP_INFO(node_->get_logger(), "Initial orientation estimated: %.3f rad", estimated_yaw_);
   } else {
     estimated_yaw_ = current_pose_.roll;  // Update with latest orientation
   }
 
   has_new_odom_data_ = true;
 
-  RCLCPP_DEBUG(this->get_logger(), "Updated position from world_odom: (%.2f, %.2f, %.2f), yaw: %.3f",
+  RCLCPP_DEBUG(node_->get_logger(), "Updated position from world_odom: (%.2f, %.2f, %.2f), yaw: %.3f",
               current_pose_.x, current_pose_.y, current_pose_.z, estimated_yaw_);
 }
 
@@ -90,7 +100,7 @@ void WaypointNavigator::lidarCallback(const sensor_msgs::msg::PointCloud2::Share
   // Integrate with nav2's costmap or implement local obstacle detection
   // Based on the user requirement to use nav2's local costmap with spatio_temporal_voxel_layer
 
-  RCLCPP_DEBUG(this->get_logger(), "Received lidar data with %d points", msg->width);
+  RCLCPP_DEBUG(node_->get_logger(), "Received lidar data with %d points", msg->width);
 }
 
 void WaypointNavigator::goalCallback(const msg_set_msgs::msg::MultiGoal::SharedPtr msg)
@@ -100,13 +110,29 @@ void WaypointNavigator::goalCallback(const msg_set_msgs::msg::MultiGoal::SharedP
   waypoints_.clear();
   for (const auto& goal_point : msg->multi_goal_points) {
     msg_set_msgs::msg::MultiGoalPoint wp = goal_point;
+
+    // Check if the coordinates are GPS coordinates or local coordinates
+    if (msg->is_gps_aid) {
+      // Convert GPS coordinates (lat/lon) to local Cartesian coordinates (x/y)
+      // x corresponds to East, y corresponds to North
+      double local_x, local_y, local_z;
+      geo_converter_->Forward(wp.x_or_lat, wp.y_or_lon, wp.z_or_alt, local_x, local_y, local_z);
+
+      // Update the waypoint with converted coordinates
+      wp.x_or_lat = local_x;
+      wp.y_or_lon = local_y;
+      wp.z_or_alt = local_z;
+    }
+    // If is_gps_aid is false, the coordinates are already in local frame, no conversion needed
+
     waypoints_.push_back(wp);
   }
 
   current_goal_index_ = 0;
   nav_state_ = NavigationState::WAITING;
 
-  RCLCPP_INFO(this->get_logger(), "Received %zu waypoints", waypoints_.size());
+  RCLCPP_INFO(node_->get_logger(), "Received %zu waypoints (GPS aid: %s)",
+              waypoints_.size(), msg->is_gps_aid ? "true" : "false");
 }
 
 void WaypointNavigator::setCurrentGoal(int index)
@@ -161,9 +187,9 @@ void WaypointNavigator::initializeOrientationEstimate()
   // the orientation is ready for use. We just need to ensure that we have valid odometry data.
 
   if (has_new_odom_data_) {
-    RCLCPP_INFO(this->get_logger(), "Orientation is ready from world_odom: %.3f rad", estimated_yaw_);
+    RCLCPP_INFO(node_->get_logger(), "Orientation is ready from world_odom: %.3f rad", estimated_yaw_);
   } else {
-    RCLCPP_WARN(this->get_logger(), "No odometry data received yet for orientation initialization");
+    RCLCPP_WARN(node_->get_logger(), "No odometry data received yet for orientation initialization");
   }
 }
 

@@ -14,7 +14,7 @@ class NavWaypointNode : public rclcpp::Node
 public:
   explicit NavWaypointNode(const rclcpp::NodeOptions & options)
   : Node("nav_waypoint_node", options),
-    navigator_(options),
+    navigator_(this),
     fsm_()
   {
     // Create timer for control loop

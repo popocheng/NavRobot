@@ -1,23 +1,24 @@
-#ifndef NAV_CORE_HPP_
-#define NAV_CORE_HPP_
+# ifndef NAV_CORE_HPP_
+# define NAV_CORE_HPP_
 
-#include <vector>
-#include <memory>
-#include <mutex>
+# include <vector>
+# include <memory>
+# include <mutex>
 
-#include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/string.hpp"
-#include "sensor_msgs/msg/nav_sat_fix.hpp"
-#include "sensor_msgs/msg/imu.hpp"
-#include "sensor_msgs/msg/point_cloud2.hpp"
-#include "geometry_msgs/msg/twist.hpp"
-#include "geometry_msgs/msg/pose_stamped.hpp"
-#include "geometry_msgs/msg/quaternion.hpp"
-#include "nav_msgs/msg/odometry.hpp"
-#include "msg_set_msgs/msg/multi_goal.hpp"
-#include "msg_set_msgs/msg/multi_goal_point.hpp"
-#include "tf2/LinearMath/Quaternion.h"
-#include "tf2/utils.h"
+# include "rclcpp/rclcpp.hpp"
+# include "std_msgs/msg/string.hpp"
+# include "sensor_msgs/msg/nav_sat_fix.hpp"
+# include "sensor_msgs/msg/imu.hpp"
+# include "sensor_msgs/msg/point_cloud2.hpp"
+# include "geometry_msgs/msg/twist.hpp"
+# include "geometry_msgs/msg/pose_stamped.hpp"
+# include "geometry_msgs/msg/quaternion.hpp"
+# include "nav_msgs/msg/odometry.hpp"
+# include "msg_set_msgs/msg/multi_goal.hpp"
+# include "msg_set_msgs/msg/multi_goal_point.hpp"
+# include "tf2/LinearMath/Quaternion.h"
+# include "tf2/utils.h"
+# include "GeographicLib/LocalCartesian.hpp"
 
 namespace waypoint_nav {
 
@@ -34,10 +35,10 @@ struct RobotPose {
   double roll, pitch, yaw;
 };
 
-class WaypointNavigator : public rclcpp::Node
+class WaypointNavigator
 {
 public:
-  explicit WaypointNavigator(const rclcpp::NodeOptions & options);
+  explicit WaypointNavigator(rclcpp::Node* node_ptr);
 
   // Core navigation methods
   void setCurrentGoal(int index);
@@ -66,6 +67,7 @@ private:
   RobotPose getCurrentPose() const { return current_pose_; }
 
   // Members
+  rclcpp::Node* node_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr lidar_sub_;
   rclcpp::Subscription<msg_set_msgs::msg::MultiGoal>::SharedPtr goal_sub_;
@@ -93,9 +95,15 @@ private:
   double control_frequency_;
   double lookahead_distance_;
 
+  // Geographic conversion
+  std::unique_ptr<GeographicLib::LocalCartesian> geo_converter_;
+  double origin_lat_{0.0};
+  double origin_lon_{0.0};
+  double origin_alt_{0.0};
+
   mutable std::mutex mutex_;
 };
 
 }  // namespace waypoint_nav
 
-#endif  // NAV_CORE_HPP_
+# endif  // NAV_CORE_HPP_

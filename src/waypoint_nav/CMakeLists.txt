@@ -19,6 +19,10 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(msg_set_msgs REQUIRED)
 
+# Check for GeographicLib
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GeoLib REQUIRED geographiclib)
+
 # Include header directories
 include_directories(
   include
@@ -43,6 +47,8 @@ ament_target_dependencies(nav_core
   tf2_ros
   msg_set_msgs
 )
+target_link_libraries(nav_core ${GeoLib_LIBRARIES})
+target_include_directories(nav_core PRIVATE ${GeoLib_INCLUDE_DIRS})
 
 # Create the navigation FSM library
 add_library(nav_fsm
@@ -78,6 +84,8 @@ target_link_libraries(nav_waypoint_node
   nav_core
   nav_fsm
 )
+target_link_libraries(nav_waypoint_node ${GeoLib_LIBRARIES})
+target_include_directories(nav_waypoint_node PRIVATE ${GeoLib_INCLUDE_DIRS})
 
 # Install executables
 install(TARGETS

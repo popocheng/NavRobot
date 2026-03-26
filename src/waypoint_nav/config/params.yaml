@@ -2,6 +2,10 @@
 
 waypoint_navigator:
   ros__parameters:
+    origin_lat: 0.0  # Latitude of origin point
+    origin_lon: 0.0  # Longitude of origin point
+    origin_alt: 0.0  # Altitude of origin point
+    
     # Tolerance for reaching a goal (meters)
     goal_tolerance: 1.0
 
