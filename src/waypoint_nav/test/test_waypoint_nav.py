@@ -4,7 +4,8 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from std_msgs.msg import String
-from sensor_msgs.msg import NavSatFix, Imu
+from sensor_msgs.msg import NavSatFix, Imu, PointCloud2
+from nav_msgs.msg import Odometry
 from msg_set_msgs.msg import MultiGoal, MultiGoalPoint
 import math
 import time
@@ -13,9 +14,8 @@ class WaypointNavTester(Node):
     def __init__(self):
         super().__init__('waypoint_nav_tester')
 
-        # Publishers for sensor inputs
-        self.gps_pub = self.create_publisher(NavSatFix, '/gps/data', 10)
-        self.imu_pub = self.create_publisher(Imu, '/imu', 10)
+        # Publishers for fused odometry and goals
+        self.world_odom_pub = self.create_publisher(Odometry, '/world_odom', 10)
         self.goal_pub = self.create_publisher(MultiGoal, '/waypoint_goals', 10)
 
         # Subscriber for command velocity
@@ -24,14 +24,19 @@ class WaypointNavTester(Node):
         # Subscriber for navigation status
         self.status_sub = self.create_subscription(String, '/nav_status', self.status_callback, 10)
 
-        self.get_logger().info('Waypoint Navigation Tester initialized')
+        self.get_logger().info('Waypoint Navigation Tester initialized (updated for world_odom)')
 
-        # Timer to periodically publish sensor data
+        # Timer to periodically publish fused odometry data
         self.timer = self.create_timer(0.1, self.publish_test_data)  # 10Hz
         self.time_counter = 0
 
         # Flag to track if goals have been published
         self.goals_published = False
+
+        # Robot starting position
+        self.robot_x = 0.0
+        self.robot_y = 0.0
+        self.robot_yaw = 0.0
 
     def cmd_vel_callback(self, msg):
         self.get_logger().info(f'Received cmd_vel: vx={msg.linear.x:.2f}, vy={msg.linear.y:.2f}, wz={msg.angular.z:.2f}')
@@ -42,25 +47,38 @@ class WaypointNavTester(Node):
     def publish_test_data(self):
         self.time_counter += 0.1
 
-        # Publish simulated GPS data (starting at a fixed point)
-        gps_msg = NavSatFix()
-        gps_msg.latitude = 37.7749 + 0.00001 * self.time_counter  # Start from a point
-        gps_msg.longitude = -122.4194 + 0.00001 * self.time_counter
-        gps_msg.altitude = 10.0
-        gps_msg.header.stamp = self.get_clock().now().to_msg()
-        gps_msg.header.frame_id = 'gps'
-        self.gps_pub.publish(gps_msg)
+        # Publish simulated world_odom data (simulating robot movement)
+        odom_msg = Odometry()
+        odom_msg.header.stamp = self.get_clock().now().to_msg()
+        odom_msg.header.frame_id = 'world'
+        odom_msg.child_frame_id = 'robot_base'
 
-        # Publish simulated IMU data
-        imu_msg = Imu()
-        # Initialize with identity quaternion (no rotation)
-        imu_msg.orientation.w = 1.0
-        imu_msg.orientation.x = 0.0
-        imu_msg.orientation.y = 0.0
-        imu_msg.orientation.z = 0.0
-        imu_msg.header.stamp = self.get_clock().now().to_msg()
-        imu_msg.header.frame_id = 'imu'
-        self.imu_pub.publish(imu_msg)
+        # Simulate robot movement based on time - follow a simple path
+        # This simulates the robot's position based on cmd_vel commands
+        if hasattr(self, 'last_cmd_vel'):
+            dt = 0.1  # Time step
+            self.robot_x += self.last_cmd_vel.linear.x * math.cos(self.robot_yaw) * dt
+            self.robot_y += self.last_cmd_vel.linear.x * math.sin(self.robot_yaw) * dt
+            self.robot_yaw += self.last_cmd_vel.angular.z * dt
+
+        # Add small deviations to simulate real movement
+        self.robot_x += 0.001 * math.sin(self.time_counter)
+        self.robot_y += 0.001 * math.cos(self.time_counter)
+
+        odom_msg.pose.pose.position.x = self.robot_x
+        odom_msg.pose.pose.position.y = self.robot_y
+        odom_msg.pose.pose.position.z = 0.0
+
+        # Set orientation from yaw
+        odom_msg.pose.pose.orientation.z = math.sin(self.robot_yaw / 2.0)
+        odom_msg.pose.pose.orientation.w = math.cos(self.robot_yaw / 2.0)
+
+        # Set twist (simulated based on last command)
+        if hasattr(self, 'last_cmd_vel'):
+            odom_msg.twist.twist.linear.x = self.last_cmd_vel.linear.x
+            odom_msg.twist.twist.angular.z = self.last_cmd_vel.angular.z
+
+        self.world_odom_pub.publish(odom_msg)
 
         # Publish waypoints once after initialization delay
         if not self.goals_published and self.time_counter > 2.0:  # After 2 seconds
@@ -68,40 +86,33 @@ class WaypointNavTester(Node):
             self.goals_published = True
 
     def publish_waypoints(self):
-        # Create a sequence of waypoints
+        # Create a sequence of waypoints in local coordinates (since we're using world_odom)
         goal_msg = MultiGoal()
 
-        # Add a few test waypoints (these would normally be in GPS coordinates)
+        # Add a few test waypoints (these are now in local coordinates relative to world origin)
         # Create a small square pattern for testing
-        base_lat = 37.7749
-        base_lon = -122.4194
+        waypoints = [
+            (2.0, 0.0),    # 2m east
+            (2.0, 2.0),    # 2m north
+            (0.0, 2.0),    # 2m west
+            (0.0, 0.0)     # back to origin
+        ]
 
-        for i in range(4):
+        for x, y in waypoints:
             wp = MultiGoalPoint()
-            if i == 0:
-                wp.x_or_lat = base_lat + 0.001  # Move North
-                wp.y_or_lon = base_lon
-            elif i == 1:
-                wp.x_or_lat = base_lat + 0.001  # Move East
-                wp.y_or_lon = base_lon + 0.001
-            elif i == 2:
-                wp.x_or_lat = base_lat  # Move South
-                wp.y_or_lon = base_lon + 0.001
-            elif i == 3:
-                wp.x_or_lat = base_lat  # Move West back to start
-                wp.y_or_lon = base_lon
-
-            wp.z_or_alt = 10.0
+            wp.x_or_lat = x
+            wp.y_or_lon = y
+            wp.z_or_alt = 0.0
             wp.yaw = 0.0  # No specific yaw requirement
-            wp.vel = 1.0  # Max velocity 1 m/s
+            wp.vel = 0.5  # Moderate velocity
             goal_msg.multi_goal_points.append(wp)
 
-        goal_msg.is_gps_aid = True  # Using GPS coordinates
-        goal_msg.is_gps_hgt = True
+        goal_msg.is_gps_aid = False  # Now using local coordinates
+        goal_msg.is_gps_hgt = False
         goal_msg.ctl_mode = 0  # vel & yawrate
 
         self.goal_pub.publish(goal_msg)
-        self.get_logger().info(f'Published {len(goal_msg.multi_goal_points)} waypoints for navigation')
+        self.get_logger().info(f'Published {len(goal_msg.multi_goal_points)} local waypoints for navigation')
 
 
 def main(args=None):

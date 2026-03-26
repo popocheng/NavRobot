@@ -12,12 +12,7 @@ WaypointNavigator::WaypointNavigator(const rclcpp::NodeOptions & options)
   current_goal_index_(0),
   estimated_yaw_(0.0),
   initial_yaw_estimated_(false),
-  has_new_gps_data_(false),
-  origin_lat_(0.0),
-  origin_lon_(0.0),
-  origin_alt_(0.0),
-  local_offset_x_(0.0),
-  local_offset_y_(0.0)
+  has_new_odom_data_(false)
 {
   // Declare parameters
   this->declare_parameter("goal_tolerance", 1.0);
@@ -35,14 +30,10 @@ WaypointNavigator::WaypointNavigator(const rclcpp::NodeOptions & options)
   this->get_parameter("control_frequency", control_frequency_);
   this->get_parameter("lookahead_distance", lookahead_distance_);
 
-  // Initialize subscribers
-  gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
-    "/gps/data", 10,
-    std::bind(&WaypointNavigator::gpsCallback, this, std::placeholders::_1));
-
-  imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
-    "/imu", 10,
-    std::bind(&WaypointNavigator::imuCallback, this, std::placeholders::_1));
+  // Initialize subscribers - subscribe to world_odom instead of direct GPS and IMU
+  odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+    "/world_odom", 10,
+    std::bind(&WaypointNavigator::odomCallback, this, std::placeholders::_1));
 
   lidar_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
     "/livox/lidar", 10,
@@ -59,64 +50,38 @@ WaypointNavigator::WaypointNavigator(const rclcpp::NodeOptions & options)
   RCLCPP_INFO(this->get_logger(), "Waypoint Navigator initialized");
 }
 
-void WaypointNavigator::gpsCallback(const sensor_msgs::msg::NavSatFix::SharedPtr msg)
+void WaypointNavigator::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
 {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  // Initialize reference point if this is the first GPS message
-  if (origin_lat_ == 0.0 && origin_lon_ == 0.0) {
-    origin_lat_ = msg->latitude;
-    origin_lon_ = msg->longitude;
-    origin_alt_ = msg->altitude;
+  // Extract position from the world_odom message
+  current_pose_.x = msg->pose.pose.position.x;
+  current_pose_.y = msg->pose.pose.position.y;
+  current_pose_.z = msg->pose.pose.position.z;
 
-    local_offset_x_ = 0.0;
-    local_offset_y_ = 0.0;
+  // Extract orientation and convert to yaw
+  tf2::Quaternion q(
+    msg->pose.pose.orientation.x,
+    msg->pose.pose.orientation.y,
+    msg->pose.pose.orientation.z,
+    msg->pose.pose.orientation.w
+  );
 
-    RCLCPP_INFO(this->get_logger(), "Initialized local coordinate system at (%.6f, %.6f, %.2f)",
-                origin_lat_, origin_lon_, origin_alt_);
-  }
+  current_pose_.roll = tf2::getYaw(q);
 
-  // Convert GPS coordinates to local meters (simplified conversion)
-  // Approximate conversion: 1 degree latitude ~ 111320 meters
-  // 1 degree longitude ~ 111320 * cos(lat) meters
-  double lat_scale = 111320.0; // meters per degree
-  double lon_scale = 111320.0 * cos(msg->latitude * M_PI / 180.0); // meters per degree
-
-  double local_x = (msg->latitude - origin_lat_) * lat_scale;
-  double local_y = (msg->longitude - origin_lon_) * lon_scale;
-  double local_z = msg->altitude - origin_alt_;
-
-  current_pose_.x = local_x;
-  current_pose_.y = local_y;
-  current_pose_.z = local_z;
-
-  has_new_gps_data_ = true;
-
-  RCLCPP_DEBUG(this->get_logger(), "Updated GPS position: (%.2f, %.2f, %.2f)", local_x, local_y, local_z);
-}
-
-void WaypointNavigator::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg)
-{
-  std::lock_guard<std::mutex> lock(mutex_);
-
-  // Extract orientation from IMU
-  current_pose_.roll = tf2::getYaw(tf2::Quaternion(
-    msg->orientation.x,
-    msg->orientation.y,
-    msg->orientation.z,
-    msg->orientation.w));
-
-  // For now, we'll use IMU yaw directly but in practice you'd fuse it with GPS data
+  // Use the orientation from world_odom as the estimated yaw
   if (!initial_yaw_estimated_) {
     estimated_yaw_ = current_pose_.roll;
     initial_yaw_estimated_ = true;
     RCLCPP_INFO(this->get_logger(), "Initial orientation estimated: %.3f rad", estimated_yaw_);
   } else {
-    // Update orientation estimate (simple integration of gyro data would go here)
-    updateOrientationEstimate();
+    estimated_yaw_ = current_pose_.roll;  // Update with latest orientation
   }
 
-  RCLCPP_DEBUG(this->get_logger(), "Updated IMU orientation: %.3f rad", current_pose_.roll);
+  has_new_odom_data_ = true;
+
+  RCLCPP_DEBUG(this->get_logger(), "Updated position from world_odom: (%.2f, %.2f, %.2f), yaw: %.3f",
+              current_pose_.x, current_pose_.y, current_pose_.z, estimated_yaw_);
 }
 
 void WaypointNavigator::lidarCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
@@ -192,46 +157,21 @@ geometry_msgs::msg::Twist WaypointNavigator::computeVelocityCommand()
 
 void WaypointNavigator::initializeOrientationEstimate()
 {
-  // TODO: Implement proper initialization that moves the robot slightly
-  // to estimate orientation from GPS changes as suggested in the requirements
-  // The requirement states: "Consider moving forward to let the dog know its initial azimuth
-  // through GPS positioning, then subsequently use IMU combined with GPS to estimate real-time azimuth"
+  // Since we're using world_odom which already has fused orientation information,
+  // the orientation is ready for use. We just need to ensure that we have valid odometry data.
 
-  if (has_new_gps_data_) {
-    // Store initial position for comparison after slight movement
-    RCLCPP_INFO(this->get_logger(), "Ready to initialize orientation estimate after movement");
+  if (has_new_odom_data_) {
+    RCLCPP_INFO(this->get_logger(), "Orientation is ready from world_odom: %.3f rad", estimated_yaw_);
+  } else {
+    RCLCPP_WARN(this->get_logger(), "No odometry data received yet for orientation initialization");
   }
 }
 
 void WaypointNavigator::updateOrientationEstimate()
 {
-  // TODO: Implement proper GPS/IMU fusion as mentioned in the requirements:
-  // "After each startup, use GPS and IMU to estimate the azimuth of the dog"
-  // Use a more sophisticated fusion algorithm (e.g., complementary filter or EKF)
-  // instead of the simple approach below
-
-  static double prev_x = current_pose_.x;
-  static double prev_y = current_pose_.y;
-  static rclcpp::Time prev_time = this->now();
-
-  rclcpp::Time curr_time = this->now();
-  double dt = (curr_time - prev_time).seconds();
-
-  if (dt > 0.01) { // Only update if sufficient time has passed
-    double dx = current_pose_.x - prev_x;
-    double dy = current_pose_.y - prev_y;
-
-    if (sqrt(dx*dx + dy*dy) > 0.01) { // Only if significant movement occurred
-      double heading_from_movement = atan2(dy, dx);
-      // Simple complementary filter: blend GPS-derived heading with IMU
-      double alpha = 0.1; // Weight for GPS heading
-      estimated_yaw_ = alpha * heading_from_movement + (1.0 - alpha) * current_pose_.roll;
-    }
-
-    prev_x = current_pose_.x;
-    prev_y = current_pose_.y;
-    prev_time = curr_time;
-  }
+  // Since we're using world_odom which has fused orientation,
+  // this function may not be needed anymore
+  // But we'll keep it in case we need to implement further fusion
 }
 
 }  // namespace waypoint_nav

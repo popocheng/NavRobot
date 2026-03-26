@@ -38,24 +38,23 @@ geometry_msgs::msg::Twist computePurePursuitCommand(
   double dx = target_x - robot_x;
   double dy = target_y - robot_y;
 
+  // Calculate the distance to the target
+  double distance_to_target = std::sqrt(dx * dx + dy * dy);
+
+  // If we're very close to the target, slow down
+  double adjusted_linear_vel = linear_vel;
+  if (distance_to_target < 0.5) {
+    adjusted_linear_vel = std::min(linear_vel * distance_to_target / 0.5, linear_vel);
+  }
+
   // Calculate the angle between robot's heading and target
   double target_angle = std::atan2(dy, dx);
   double angle_diff = normalizeAngle(target_angle - robot_yaw);
 
-  // Use the pure pursuit formula to calculate angular velocity
-  // Radius of curvature for the path to follow
-  double radius = lookahead_distance / std::sin(angle_diff);
-
-  // Avoid division by zero when sin(angle_diff) is close to zero
-  if (std::abs(std::sin(angle_diff)) < 1e-6) {
-    cmd_vel.linear.x = linear_vel;
-    cmd_vel.linear.y = 0.0;
-    cmd_vel.angular.z = (angle_diff > 0) ? max_angular_vel : -max_angular_vel;
-    return cmd_vel;
-  }
-
-  // Calculate angular velocity based on linear velocity and turning radius
-  double angular_vel = 2.0 * linear_vel * std::sin(angle_diff) / lookahead_distance;
+  // Simple proportional controller for angular velocity
+  // Instead of using the radius-based formula which can be unstable when angle_diff is near 0 or π,
+  // use a simpler approach based on the angle difference
+  double angular_vel = 2.0 * angle_diff;  // Proportional gain of 2.0
 
   // Limit the angular velocity
   if (angular_vel > max_angular_vel) {
@@ -64,13 +63,17 @@ geometry_msgs::msg::Twist computePurePursuitCommand(
     angular_vel = -max_angular_vel;
   }
 
+  // When the robot is very close to the goal or facing away from it, reduce linear velocity
+  if (std::abs(angle_diff) > M_PI / 2.0) {  // More than 90 degrees off
+    adjusted_linear_vel *= 0.5;  // Reduce linear velocity by half
+  } else if (distance_to_target < lookahead_distance * 0.5) {  // Very close to goal
+    adjusted_linear_vel *= 0.3;  // Further reduce as we approach
+  }
+
   // Set velocities
-  cmd_vel.linear.x = linear_vel;
+  cmd_vel.linear.x = adjusted_linear_vel;
   cmd_vel.linear.y = 0.0;
   cmd_vel.angular.z = angular_vel;
-
-  // TODO: Enhance the pure pursuit algorithm with dynamic lookahead distance
-  // based on robot speed and trajectory curvature for better performance
 
   return cmd_vel;
 }

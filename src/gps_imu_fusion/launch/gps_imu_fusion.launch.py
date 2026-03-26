@@ -17,9 +17,11 @@ def generate_launch_description():
         name='gps_imu_fusion_node',
         output='screen',
         parameters=[
-            {'origin_lat': 37.7749},
-            {'origin_lon': -122.4194},
-            {'origin_alt': 0.0}
+            config  # Load parameters from YAML file
+        ],
+        remappings=[
+            ('/imu', '/livox/imu'),  # Map imu/data to /imu/data for IMU data
+            ('/gps/data', '/gps/data'),  # Map gps/data to /gps/data for GPS data
         ]
     )
 

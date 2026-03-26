@@ -38,6 +38,7 @@ ament_target_dependencies(nav_core
   std_msgs
   sensor_msgs
   geometry_msgs
+  nav_msgs
   tf2
   tf2_ros
   msg_set_msgs

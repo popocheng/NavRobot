@@ -13,6 +13,7 @@
 #include "geometry_msgs/msg/twist.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/quaternion.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 #include "msg_set_msgs/msg/multi_goal.hpp"
 #include "msg_set_msgs/msg/multi_goal_point.hpp"
 #include "tf2/LinearMath/Quaternion.h"
@@ -54,8 +55,7 @@ public:
   void setState(NavigationState state) { nav_state_ = state; }
 
 private:
-  void gpsCallback(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
-  void imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg);
+  void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
   void lidarCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
   void goalCallback(const msg_set_msgs::msg::MultiGoal::SharedPtr msg);
 
@@ -66,8 +66,7 @@ private:
   RobotPose getCurrentPose() const { return current_pose_; }
 
   // Members
-  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr lidar_sub_;
   rclcpp::Subscription<msg_set_msgs::msg::MultiGoal>::SharedPtr goal_sub_;
 
@@ -81,11 +80,7 @@ private:
   RobotPose current_pose_;
   double estimated_yaw_;
   bool initial_yaw_estimated_;
-  bool has_new_gps_data_;
-
-  // Coordinate transformation parameters
-  double origin_lat_, origin_lon_, origin_alt_;
-  double local_offset_x_, local_offset_y_;
+  bool has_new_odom_data_;
 
   // Allow access to these members from friend classes
   friend class NavWaypointNode;

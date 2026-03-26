@@ -1,11 +1,11 @@
 # Waypoint Navigation Package
 
-This package implements autonomous navigation for a robot dog that follows a sequence of waypoints. It integrates GPS, IMU, and LiDAR data to achieve accurate navigation with obstacle avoidance.
+This package implements autonomous navigation for a robot dog that follows a sequence of waypoints. It integrates fused odometry data from GPS/IMU fusion with LiDAR data to achieve accurate navigation with obstacle avoidance.
 
 ## Features
 
-- **GPS/IMU Fusion**: Combines GPS and IMU data for accurate positioning and orientation estimation
-- **Waypoint Following**: Navigates through a sequence of GPS coordinates
+- **Integrated Positioning**: Uses fused world_odom data from GPS/IMU fusion for accurate positioning and orientation
+- **Waypoint Following**: Navigates through a sequence of coordinates
 - **Obstacle Avoidance**: Uses LiDAR data to detect and avoid obstacles (TO-DO)
 - **State Management**: Implements a finite state machine for navigation states
 - **Pure Pursuit Algorithm**: Path following algorithm for smooth navigation
@@ -14,8 +14,7 @@ This package implements autonomous navigation for a robot dog that follows a seq
 
 ### Subscribed Topics
 
-- `/gps/data` (`sensor_msgs/NavSatFix`) - GPS position data
-- `/imu` (`sensor_msgs/Imu`) - IMU orientation and acceleration data
+- `/world_odom` (`nav_msgs/Odometry`) - Fused world odometry from GPS/IMU fusion
 - `/livox/lidar` (`sensor_msgs/PointCloud2`) - LiDAR point cloud data
 - `/waypoint_goals` (`msg_set_msgs/MultiGoal`) - Sequence of waypoints to follow
 
@@ -64,7 +63,7 @@ The navigation system operates in the following states:
 
 - `IDLE`: Awaiting waypoint commands
 - `WAITING_FOR_GOALS`: Ready to receive goals
-- `INITIALIZING`: Initializing sensors and estimating orientation
+- `INITIALIZING`: Initializing with fused odometry data
 - `EXECUTING_PATH`: Following the planned path
 - `AVOIDING_OBSTACLE`: Temporarily deviating to avoid obstacles (TO-DO)
 - `GOAL_REACHED`: Successfully reached a goal
@@ -75,7 +74,7 @@ The navigation system operates in the following states:
 
 The package consists of:
 
-- `WaypointNavigator`: Core navigation logic with GPS/IMU fusion
+- `WaypointNavigator`: Core navigation logic using fused odometry
 - `NavigationFSM`: Finite state machine for managing navigation states
 - `Utils`: Utility functions for mathematical calculations and path planning
 - `NavWaypointNode`: Main ROS2 node that orchestrates the navigation process
@@ -87,8 +86,7 @@ The following features are not yet implemented but planned:
 1. **LiDAR-based Obstacle Detection and Avoidance**: Currently, the LiDAR data is subscribed but not processed for obstacle avoidance.
 2. **Integration with nav2 libraries**: The original plan mentioned using nav2's local costmap with spatio_temporal_voxel_layer for advanced obstacle processing.
 3. **Advanced Path Planning**: Implementing local replanning when obstacles are detected.
-4. **Improved Orientation Estimation**: Better fusion of GPS and IMU data for more accurate heading estimation.
-5. **Coordinate Transformation Integration**: Full integration with the existing global2local package for more sophisticated transformations.
-6. **More Robust State Transitions**: Handling edge cases in state machine transitions.
-7. **Service Interface**: Implementing a service for querying navigation status or resetting the navigation system.
-8. **Parameter Tuning**: Fine-tuning parameters for different robot dynamics and environments.
+4. **Improved Integration with Global2Local Package**: Full integration with the existing global2local package for more sophisticated transformations.
+5. **More Robust State Transitions**: Handling edge cases in state machine transitions.
+6. **Service Interface**: Implementing a service for querying navigation status or resetting the navigation system.
+7. **Parameter Tuning**: Fine-tuning parameters for different robot dynamics and environments.

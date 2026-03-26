@@ -1,6 +1,4 @@
-/**
- * Navigation parameters for waypoint navigation
- */
+# Navigation parameters for waypoint navigation
 
 waypoint_navigator:
   ros__parameters:

@@ -10,6 +10,7 @@
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2/LinearMath/Matrix3x3.h"
 #include "tf2_ros/transform_broadcaster.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "GeographicLib/LocalCartesian.hpp"
 
 class GpsImuFusionNode : public rclcpp::Node
@@ -27,11 +28,13 @@ public:
     this->declare_parameter("origin_lat", 37.7749);  // Default to San Francisco as example
     this->declare_parameter("origin_lon", -122.4194);
     this->declare_parameter("origin_alt", 0.0);
+    this->declare_parameter("yaw_offset", 0.0);  // Yaw offset in radians
 
     // Get parameters
     this->get_parameter("origin_lat", origin_lat_);
     this->get_parameter("origin_lon", origin_lon_);
     this->get_parameter("origin_alt", origin_alt_);
+    this->get_parameter("yaw_offset", yaw_offset_);
 
     // Initialize GeographicLib converter
     geo_converter_.reset(new GeographicLib::LocalCartesian(origin_lat_, origin_lon_, origin_alt_));
@@ -56,8 +59,8 @@ public:
       std::chrono::milliseconds(100),  // 10 Hz
       std::bind(&GpsImuFusionNode::publishOdomAndTf, this));
 
-    RCLCPP_INFO(this->get_logger(), "GPS/IMU Fusion Node initialized with origin: lat=%.6f, lon=%.6f, alt=%.2f",
-                origin_lat_, origin_lon_, origin_alt_);
+    RCLCPP_INFO(this->get_logger(), "GPS/IMU Fusion Node initialized with origin: lat=%.6f, lon=%.6f, alt=%.2f, yaw_offset=%.4f",
+                origin_lat_, origin_lon_, origin_alt_, yaw_offset_);
   }
 
 private:
@@ -83,14 +86,29 @@ private:
   {
     std::lock_guard<std::mutex> lock(data_mutex_);
 
-    // Extract orientation from IMU
-    current_orientation_ = msg->orientation;
+    // Apply yaw offset to the IMU orientation
+    tf2::Quaternion imu_quat, yaw_quat, result_quat;
+
+    // Convert the IMU orientation to tf2::Quaternion using tf2::convert
+    tf2::fromMsg(msg->orientation, imu_quat);
+
+    // Create a quaternion representing only the yaw offset
+    yaw_quat.setRPY(0, 0, yaw_offset_);
+
+    // Multiply the quaternions: result = imu_orientation * yaw_offset
+    result_quat = imu_quat * yaw_quat;
+
+    // Normalize the resulting quaternion to ensure it's a unit quaternion
+    result_quat.normalize();
+
+    // Convert back to geometry_msgs::Quaternion
+    current_orientation_ = tf2::toMsg(result_quat);
 
     // For future improvement: use IMU angular rates to predict orientation changes
     // between GPS updates
     imu_received_ = true;
 
-    RCLCPP_DEBUG(this->get_logger(), "IMU updated: orientation updated");
+    RCLCPP_DEBUG(this->get_logger(), "IMU updated: orientation updated with yaw offset %.4f", yaw_offset_);
   }
 
   void publishOdomAndTf()
@@ -105,13 +123,16 @@ private:
     auto odom_msg = nav_msgs::msg::Odometry();
     odom_msg.header.stamp = this->now();
     odom_msg.header.frame_id = "world";  // Fixed world frame
-    odom_msg.child_frame_id = "robot_base";  // Robot frame
+    odom_msg.child_frame_id = "base_link";  // Robot frame
 
     // Position
     odom_msg.pose.pose.position.x = current_x_;  // E (East)
     odom_msg.pose.pose.position.y = current_y_;  // N (North)
     odom_msg.pose.pose.position.z = current_z_;  // U (Up)
 
+    // TODO: 目前是用了IMU的orientation，这个后面主要是给导航提供yaw角。
+    // 但IMU如果不带磁力计这个yaw就是非全局的，不能用。
+    // 后续这个要用外部输入的 1)罗盘数据 或 2)全局坐标系odom(如果有的话)的orientation。
     // Orientation - use IMU if available, otherwise keep last value
     if (imu_received_) {
       odom_msg.pose.pose.orientation = current_orientation_;
@@ -172,6 +193,7 @@ private:
   double origin_lat_{0.0};
   double origin_lon_{0.0};
   double origin_alt_{0.0};
+  double yaw_offset_{0.0};  // Yaw offset in radians
 
   // GeographicLib converter
   std::unique_ptr<GeographicLib::LocalCartesian> geo_converter_;
