@@ -12,7 +12,7 @@ def generate_launch_description():
 
     declare_use_sim_time_argument = DeclareLaunchArgument(
         'use_sim_time',
-        default_value='true',
+        default_value='false',
         description='Use simulation/Gazebo clock')
 
     declare_params_file_argument = DeclareLaunchArgument(
@@ -42,13 +42,27 @@ def generate_launch_description():
         ]
     )
 
-    # Navigation2 controller server node
+    # RViz2 node to visualize navigation
+    rviz_node = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        arguments=['-d', os.path.join(
+            get_package_share_directory('waypoint_nav'),
+            'config',
+            'nav_visualization.rviz'
+        )],
+        output='screen'
+    )
+
+    # Navigation2 controller server node - now configured to handle timing issues
     controller_server_node = Node(
         package='nav2_controller',
         executable='controller_server',
         name='controller_server',
         output='screen',
-        parameters=[params_file, {'use_sim_time': use_sim_time}]
+        parameters=[params_file, {'use_sim_time': use_sim_time}],
+        # arguments=['--ros-args', '--log-level', 'debug']
     )
 
     waypoint_nav_node = Node(
@@ -63,19 +77,6 @@ def generate_launch_description():
                 'params.yaml'
             )
         ]
-    )
-
-    # RViz2 node to visualize navigation
-    rviz_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        arguments=['-d', os.path.join(
-            get_package_share_directory('waypoint_nav'),
-            'config',
-            'nav_visualization.rviz'
-        )],
-        output='screen'
     )
 
     # Lifecyle manager to manage the navigation2 nodes
@@ -93,9 +94,9 @@ def generate_launch_description():
         declare_use_sim_time_argument,
         declare_params_file_argument,
         gps_imu_fusion_node,
-        waypoint_nav_node,
         rviz_node,
         # External Nav2 controller server
         controller_server_node,
+        waypoint_nav_node,
         lifecycle_manager
     ])

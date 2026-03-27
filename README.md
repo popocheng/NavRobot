@@ -7,7 +7,7 @@ source install/setup.bash && \
 ros2 topic pub --once /waypoint_goals msg_set_msgs/msg/MultiGoal "{
   multi_goal_points: [
     {
-      x_or_lat: 0.00002,
+      x_or_lat: 0.00012,
       y_or_lon: 0.00002,
       z_or_alt: 0.0,
       yaw: 0.0,
@@ -15,13 +15,13 @@ ros2 topic pub --once /waypoint_goals msg_set_msgs/msg/MultiGoal "{
     },
     {
       x_or_lat: 0.00008,
-      y_or_lon: 0.00007,
+      y_or_lon: 0.00017,
       z_or_alt: 0.0,
       yaw: 0.5,
       vel: 1.0
     },
     {
-      x_or_lat: 0.00002,
+      x_or_lat: 0.00012,
       y_or_lon: 0.00006,
       z_or_alt: 0.0,
       yaw: 1.0,
@@ -29,7 +29,7 @@ ros2 topic pub --once /waypoint_goals msg_set_msgs/msg/MultiGoal "{
     },
     {
       x_or_lat: 0.00001,
-      y_or_lon: 0.00008,
+      y_or_lon: 0.00018,
       z_or_alt: 0.0,
       yaw: 1.5,
       vel: 0.8

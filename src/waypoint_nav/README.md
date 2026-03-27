@@ -89,6 +89,15 @@ ros2 topic pub /waypoint_goals msg_set_msgs/msg/MultiGoal "..."
 - **外部Controller Server模式** (use_controller_server: true): 导航器将路径发送给外部启动的controller_server，由其执行路径规划和避障
 - **纯追踪模式** (use_controller_server: false): 直接使用纯追踪算法计算速度命令
 
+支持动态参数重配置，可以在运行时切换控制器模式:
+```bash
+# 切换到外部controller_server模式
+ros2 param set /nav_waypoint_node use_controller_server true
+
+# 切换到纯追踪模式
+ros2 param set /nav_waypoint_node use_controller_server false
+```
+
 ## 算法逻辑流程图
 
 ### 数据流层面

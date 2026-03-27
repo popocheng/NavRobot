@@ -48,6 +48,24 @@ WaypointNavigator::WaypointNavigator(rclcpp::Node* node_ptr)
   node_->get_parameter("origin_alt", origin_alt_);
   node_->get_parameter("use_controller_server", use_controller_server_);
 
+  // Register parameter callback for dynamic reconfiguration
+  param_callback_handle_ = node_->add_on_set_parameters_callback(
+    [this](const std::vector<rclcpp::Parameter> & parameters) -> rcl_interfaces::msg::SetParametersResult {
+      auto result = rcl_interfaces::msg::SetParametersResult();
+      result.successful = true;
+
+      for (const auto & parameter : parameters) {
+        if (parameter.get_name() == "use_controller_server") {
+          use_controller_server_ = parameter.as_bool();
+          RCLCPP_INFO(node_->get_logger(), "Controller mode changed dynamically to: %s",
+                      use_controller_server_ ? "controller_server" : "pure_pursuit");
+          // Reset path tracking when switching modes
+          path_sent_to_controller_ = false;
+        }
+      }
+      return result;
+    });
+
   RCLCPP_INFO(node_->get_logger(), "Waypoint Navigator initialized with parameters:");
   RCLCPP_INFO(node_->get_logger(), "goal_tolerance: %.2f", goal_tolerance_);
   RCLCPP_INFO(node_->get_logger(), "yaw_tolerance: %.2f", yaw_tolerance_);
@@ -139,7 +157,12 @@ void WaypointNavigator::goalCallback(const msg_set_msgs::msg::MultiGoal::SharedP
 {
   std::lock_guard<std::mutex> lock(mutex_);
 
+  // Reset the navigator completely when new goals are received
+  // This clears history, waypoints, and sets state to IDLE
+  // resetNavigator();
   waypoints_.clear();
+
+  // Now add the new waypoints
   for (const auto& goal_point : msg->multi_goal_points) {
     msg_set_msgs::msg::MultiGoalPoint wp = goal_point;
 
@@ -165,7 +188,7 @@ void WaypointNavigator::goalCallback(const msg_set_msgs::msg::MultiGoal::SharedP
   current_goal_index_ = 0;
   nav_state_ = NavigationState::WAITING;
 
-  RCLCPP_INFO(node_->get_logger(), "Received %zu waypoints (GPS aid: %s)",
+  RCLCPP_INFO(node_->get_logger(), "Received %zu waypoints (GPS aid: %s) and navigator reset",
               waypoints_.size(), msg->is_gps_aid ? "true" : "false");
 }
 
@@ -520,8 +543,8 @@ bool WaypointNavigator::sendPathToControllerServer()
   }
 
   // Check if action server is available
-  if (!follow_path_client_->wait_for_action_server(std::chrono::milliseconds(100))) {
-    RCLCPP_WARN(node_->get_logger(), "Follow path action server not available");
+  if (!follow_path_client_->wait_for_action_server(std::chrono::milliseconds(1000))) {
+    RCLCPP_ERROR(node_->get_logger(), "Follow path action server not available after waiting");
     return false;
   }
 
@@ -530,6 +553,24 @@ bool WaypointNavigator::sendPathToControllerServer()
   path_msg.header.frame_id = "world";
   path_msg.header.stamp = node_->now();
 
+  // Validate that we have a valid current pose and goal
+  if (current_goal_index_ >= waypoints_.size()) {
+    RCLCPP_ERROR(node_->get_logger(), "Invalid goal index for path generation");
+    return false;
+  }
+
+  const auto& current_goal = waypoints_[current_goal_index_];
+
+  // Calculate distance to goal
+  double dist_to_goal = std::sqrt(std::pow(current_goal.x_or_lat - current_pose_.x, 2) +
+                                  std::pow(current_goal.y_or_lon - current_pose_.y, 2));
+
+  // If we're very close to the goal, just mark as reached to avoid oscillation
+  if (dist_to_goal <= goal_tolerance_) {
+    RCLCPP_INFO(node_->get_logger(), "Robot is already within goal tolerance (%.2f m), skipping path planning", goal_tolerance_);
+    return true;
+  }
+
   // Add current robot pose as the start of the path
   geometry_msgs::msg::PoseStamped start_pose;
   start_pose.header = path_msg.header;
@@ -537,19 +578,52 @@ bool WaypointNavigator::sendPathToControllerServer()
   start_pose.pose.position.y = current_pose_.y;
   start_pose.pose.position.z = current_pose_.z;
 
-  // Set orientation to face towards the goal
-  const auto& current_goal = waypoints_[current_goal_index_];
-  double target_angle = std::atan2(current_goal.y_or_lon - current_pose_.y,
-                                  current_goal.x_or_lat - current_pose_.x);
+  // Calculate initial heading based on current orientation or toward goal if no reliable orientation
+  double initial_heading = estimated_yaw_;
 
-  tf2::Quaternion q;
-  q.setRPY(0, 0, target_angle);
-  start_pose.pose.orientation.x = q.x();
-  start_pose.pose.orientation.y = q.y();
-  start_pose.pose.orientation.z = q.z();
-  start_pose.pose.orientation.w = q.w();
+  // If the robot doesn't have a reliable initial orientation, use direction to goal
+  if (!initial_yaw_estimated_ || std::abs(dist_to_goal) > 0.1) {
+    initial_heading = std::atan2(current_goal.y_or_lon - current_pose_.y,
+                                current_goal.x_or_lat - current_pose_.x);
+  }
+
+  tf2::Quaternion q_start;
+  q_start.setRPY(0, 0, initial_heading);
+  start_pose.pose.orientation.x = q_start.x();
+  start_pose.pose.orientation.y = q_start.y();
+  start_pose.pose.orientation.z = q_start.z();
+  start_pose.pose.orientation.w = q_start.w();
 
   path_msg.poses.push_back(start_pose);
+
+  // Generate intermediate waypoints to create a smoother path and reduce oscillation
+  int num_intermediate_points = std::min(static_cast<int>(dist_to_goal / 0.5), 10); // Max 10 intermediate points
+  if (num_intermediate_points > 0) {
+    double step_x = (current_goal.x_or_lat - current_pose_.x) / (num_intermediate_points + 1);
+    double step_y = (current_goal.y_or_lon - current_pose_.y) / (num_intermediate_points + 1);
+
+    for (int i = 1; i <= num_intermediate_points; ++i) {
+      geometry_msgs::msg::PoseStamped intermediate_pose;
+      intermediate_pose.header = path_msg.header;
+
+      intermediate_pose.pose.position.x = current_pose_.x + step_x * i;
+      intermediate_pose.pose.position.y = current_pose_.y + step_y * i;
+      intermediate_pose.pose.position.z = current_pose_.z;  // Assuming flat terrain
+
+      // Orient intermediate points toward the final goal
+      tf2::Quaternion q_intermediate;
+      double intermediate_yaw = std::atan2(current_goal.y_or_lon - intermediate_pose.pose.position.y,
+                                          current_goal.x_or_lat - intermediate_pose.pose.position.x);
+      q_intermediate.setRPY(0, 0, intermediate_yaw);
+
+      intermediate_pose.pose.orientation.x = q_intermediate.x();
+      intermediate_pose.pose.orientation.y = q_intermediate.y();
+      intermediate_pose.pose.orientation.z = q_intermediate.z();
+      intermediate_pose.pose.orientation.w = q_intermediate.w();
+
+      path_msg.poses.push_back(intermediate_pose);
+    }
+  }
 
   // Add the target goal as the end of the path
   geometry_msgs::msg::PoseStamped goal_pose;
@@ -559,7 +633,8 @@ bool WaypointNavigator::sendPathToControllerServer()
   goal_pose.pose.position.z = current_goal.z_or_alt;
 
   // Calculate orientation for the goal pose (looking at the next goal if it exists)
-  double goal_orientation = target_angle;
+  double goal_orientation = std::atan2(current_goal.y_or_lon - path_msg.poses[path_msg.poses.size()-2].pose.position.y,
+                                      current_goal.x_or_lat - path_msg.poses[path_msg.poses.size()-2].pose.position.x);
   if (current_goal_index_ + 1 < waypoints_.size()) {
     const auto& next_goal = waypoints_[current_goal_index_ + 1];
     goal_orientation = std::atan2(next_goal.y_or_lon - current_goal.y_or_lon,
@@ -575,6 +650,18 @@ bool WaypointNavigator::sendPathToControllerServer()
 
   path_msg.poses.push_back(goal_pose);
 
+  // Only send path if it has valid poses
+  if (path_msg.poses.size() < 2) {
+    RCLCPP_ERROR(node_->get_logger(), "Generated path has insufficient poses");
+    return false;
+  }
+
+  // Log the path distance for debugging
+  double path_distance = std::sqrt(std::pow(goal_pose.pose.position.x - start_pose.pose.position.x, 2) +
+                                   std::pow(goal_pose.pose.position.y - start_pose.pose.position.y, 2));
+  RCLCPP_INFO(node_->get_logger(), "Sending path to controller server with %zu waypoints and distance: %.2f m",
+              path_msg.poses.size(), path_distance);
+
   // Send the path to the controller server
   auto goal_msg = nav2_msgs::action::FollowPath::Goal();
   goal_msg.path = path_msg;
@@ -582,25 +669,65 @@ bool WaypointNavigator::sendPathToControllerServer()
   auto send_goal_options = rclcpp_action::Client<nav2_msgs::action::FollowPath>::SendGoalOptions();
 
   send_goal_options.result_callback =
-    [this](const rclcpp_action::ClientGoalHandle<nav2_msgs::action::FollowPath>::WrappedResult & result) {
+    [this, target_angle = std::atan2(current_goal.y_or_lon - current_pose_.y,
+                                    current_goal.x_or_lat - current_pose_.x)](const rclcpp_action::ClientGoalHandle<nav2_msgs::action::FollowPath>::WrappedResult & result) {
       switch (result.code) {
         case rclcpp_action::ResultCode::SUCCEEDED:
-          RCLCPP_INFO(node_->get_logger(), "FollowPath action succeeded");
+        {
+          RCLCPP_INFO(node_->get_logger(), "FollowPath action succeeded for goal index %zu", current_goal_index_);
+
+          // Mark the current goal as reached and move to next if available
+          if (current_goal_index_ + 1 < waypoints_.size()) {
+            current_goal_index_++;
+            path_sent_to_controller_ = false; // Allow sending next path
+            RCLCPP_INFO(node_->get_logger(), "Moving to next goal index %zu", current_goal_index_);
+          } else {
+            // All goals reached
+            RCLCPP_INFO(node_->get_logger(), "All goals reached, navigation completed");
+            nav_state_ = NavigationState::COMPLETED;
+          }
           break;
+        }
         case rclcpp_action::ResultCode::ABORTED:
-          RCLCPP_ERROR(node_->get_logger(), "FollowPath action was aborted");
+        {
+          RCLCPP_ERROR(node_->get_logger(), "FollowPath action was aborted for goal index %zu", current_goal_index_);
+          // Reset path tracking to try again or move to next goal
+          path_sent_to_controller_ = false;
+
+          // Check if the robot is close enough to consider the goal reached despite failure
+          if (current_goal_index_ < waypoints_.size()) {
+            const auto& current_goal = waypoints_[current_goal_index_];
+            double dist_to_current_goal = std::sqrt(std::pow(current_goal.x_or_lat - current_pose_.x, 2) +
+                                                    std::pow(current_goal.y_or_lon - current_pose_.y, 2));
+            if (dist_to_current_goal <= goal_tolerance_) {
+              RCLCPP_INFO(node_->get_logger(), "Robot is close to goal despite abort, moving to next goal");
+              if (current_goal_index_ + 1 < waypoints_.size()) {
+                current_goal_index_++;
+                path_sent_to_controller_ = false;
+              } else {
+                nav_state_ = NavigationState::COMPLETED;
+              }
+            }
+          }
           break;
+        }
         case rclcpp_action::ResultCode::CANCELED:
-          RCLCPP_WARN(node_->get_logger(), "FollowPath action was canceled");
+        {
+          RCLCPP_WARN(node_->get_logger(), "FollowPath action was canceled for goal index %zu", current_goal_index_);
+          path_sent_to_controller_ = false;
           break;
+        }
         default:
-          RCLCPP_ERROR(node_->get_logger(), "FollowPath action failed with unknown result code");
+        {
+          RCLCPP_ERROR(node_->get_logger(), "FollowPath action failed with unknown result code for goal index %zu", current_goal_index_);
+          path_sent_to_controller_ = false;
           break;
+        }
       }
     };
 
   // Send the goal asynchronously
-  follow_path_client_->async_send_goal(goal_msg, send_goal_options);
+  auto goal_handle_future = follow_path_client_->async_send_goal(goal_msg, send_goal_options);
 
   return true;
 }

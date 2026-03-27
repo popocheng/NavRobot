@@ -64,6 +64,9 @@ public:
   NavigationState getState() const { return nav_state_; }
   void setState(NavigationState state) { nav_state_ = state; }
 
+  // Parameter accessor for dynamic reconfiguration
+  bool getUseControllerServer() const { return use_controller_server_; }
+
   // Visualization methods
   void publishVisualizations();
   void publishWaypointMarkers();
@@ -134,6 +137,9 @@ private:
 
   // Control mode parameter
   bool use_controller_server_;
+
+  // Parameter callback handle for dynamic reconfiguration
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
 
   // Geographic conversion
   std::unique_ptr<GeographicLib::LocalCartesian> geo_converter_;
