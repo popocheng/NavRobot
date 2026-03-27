@@ -13,3 +13,6 @@ gps_imu_fusion_node:
 
     # Yaw offset for compass heading correction (in radians)
     yaw_offset: 3.14159  # Compass yaw offset in radians
+
+    # Whether to use only yaw from IMU (discard roll and pitch)
+    use_yaw_only: true  # Set to true to extract only yaw from IMU, false to use full orientation

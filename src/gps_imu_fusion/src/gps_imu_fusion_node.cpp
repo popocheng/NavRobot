@@ -29,12 +29,14 @@ public:
     this->declare_parameter("origin_lon", -122.4194);
     this->declare_parameter("origin_alt", 0.0);
     this->declare_parameter("yaw_offset", 0.0);  // Yaw offset in radians
+    this->declare_parameter("use_yaw_only", false);  // Whether to extract only yaw from IMU
 
     // Get parameters
     this->get_parameter("origin_lat", origin_lat_);
     this->get_parameter("origin_lon", origin_lon_);
     this->get_parameter("origin_alt", origin_alt_);
     this->get_parameter("yaw_offset", yaw_offset_);
+    this->get_parameter("use_yaw_only", use_yaw_only_);
 
     // Initialize GeographicLib converter
     geo_converter_.reset(new GeographicLib::LocalCartesian(origin_lat_, origin_lon_, origin_alt_));
@@ -89,17 +91,30 @@ private:
     // Store the IMU timestamp
     latest_timestamp_ = msg->header.stamp;
 
-    // Apply yaw offset to the IMU orientation
-    tf2::Quaternion imu_quat, yaw_quat, result_quat;
+    tf2::Quaternion imu_quat;
 
     // Convert the IMU orientation to tf2::Quaternion using tf2::convert
     tf2::fromMsg(msg->orientation, imu_quat);
 
-    // Create a quaternion representing only the yaw offset
-    yaw_quat.setRPY(0, 0, yaw_offset_);
+    tf2::Quaternion result_quat;
 
-    // Multiply the quaternions: result = imu_orientation * yaw_offset
-    result_quat = imu_quat * yaw_quat;
+    if (use_yaw_only_) {
+      // Extract only yaw from IMU orientation, discard roll and pitch
+      double roll, pitch, yaw;
+      tf2::Matrix3x3(imu_quat).getRPY(roll, pitch, yaw);
+
+      // Create a quaternion with only yaw component (zero roll and pitch)
+      result_quat.setRPY(0, 0, yaw + yaw_offset_);
+    } else {
+      // Apply yaw offset to the IMU orientation as before
+      tf2::Quaternion yaw_quat;
+
+      // Create a quaternion representing only the yaw offset
+      yaw_quat.setRPY(0, 0, yaw_offset_);
+
+      // Multiply the quaternions: result = imu_orientation * yaw_offset
+      result_quat = imu_quat * yaw_quat;
+    }
 
     // Normalize the resulting quaternion to ensure it's a unit quaternion
     result_quat.normalize();
@@ -208,6 +223,7 @@ private:
   double origin_lon_{0.0};
   double origin_alt_{0.0};
   double yaw_offset_{0.0};  // Yaw offset in radians
+  bool use_yaw_only_{false};  // Whether to extract only yaw from IMU
 
   // GeographicLib converter
   std::unique_ptr<GeographicLib::LocalCartesian> geo_converter_;
