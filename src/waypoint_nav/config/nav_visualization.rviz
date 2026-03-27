@@ -4,6 +4,7 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
+        - /TF1
         - /Waypoint Markers1
         - /Path Markers1
         - /LocalCostmap1
@@ -95,7 +96,7 @@ Visualization Manager:
           Value: false
         world:
           Value: true
-      Marker Scale: 1
+      Marker Scale: 5
       Name: TF
       Show Arrows: true
       Show Axes: true
@@ -166,7 +167,8 @@ Visualization Manager:
       Enabled: true
       Name: Waypoint Markers
       Namespaces:
-        {}
+        waypoint_labels: true
+        waypoints: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -178,7 +180,8 @@ Visualization Manager:
       Enabled: true
       Name: Path Markers
       Namespaces:
-        {}
+        path_arrows: true
+        path_lines: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -396,25 +399,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 26.335098266601562
+      Distance: 49.63279342651367
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 5.7931647300720215
-        Y: 4.722240447998047
-        Z: 1.1408122777938843
+        X: 10.895842552185059
+        Y: 7.755558967590332
+        Z: -0.018632715567946434
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.4397965669631958
+      Pitch: 1.454796552658081
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 4.673568248748779
+      Yaw: 1.630387306213379
     Saved: ~
 Window Geometry:
   Displays:
