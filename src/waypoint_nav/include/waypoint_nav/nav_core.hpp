@@ -22,6 +22,11 @@
 # include "visualization_msgs/msg/marker.hpp"
 # include "visualization_msgs/msg/marker_array.hpp"
 # include "nav_msgs/msg/path.hpp"
+# include "rclcpp_action/client.hpp"
+
+// Navigation2 includes
+# include "nav2_msgs/action/navigate_to_pose.hpp"
+# include "nav2_msgs/action/follow_path.hpp"
 
 namespace waypoint_nav {
 
@@ -77,6 +82,9 @@ private:
   void updateOrientationEstimate();
   RobotPose getCurrentPose() const { return current_pose_; }
 
+  // Path to controller methods
+  bool sendPathToControllerServer();
+
   // Members
   rclcpp::Node* node_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
@@ -100,6 +108,15 @@ private:
   bool initial_yaw_estimated_;
   bool has_new_odom_data_;
 
+  // Navigation2 related members
+
+  // Action client for controller server
+  rclcpp_action::Client<nav2_msgs::action::FollowPath>::SharedPtr follow_path_client_;
+
+  // Path sending tracking
+  bool path_sent_to_controller_;
+  size_t last_goal_index_sent_;
+
   // Visualization related
   std::vector<geometry_msgs::msg::PoseStamped> actual_path_;
   mutable std::mutex path_mutex_;
@@ -114,6 +131,9 @@ private:
   double angular_velocity_limit_;
   double control_frequency_;
   double lookahead_distance_;
+
+  // Control mode parameter
+  bool use_controller_server_;
 
   // Geographic conversion
   std::unique_ptr<GeographicLib::LocalCartesian> geo_converter_;

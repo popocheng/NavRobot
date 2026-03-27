@@ -10,7 +10,6 @@ enum class NavFSMState {
   WAITING_FOR_GOALS,
   INITIALIZING,
   EXECUTING_PATH,
-  AVOIDING_OBSTACLE,
   GOAL_REACHED,
   FAILED,
   COMPLETED
@@ -26,7 +25,6 @@ public:
   void transitToWaitingForGoals();
   void transitToInitializing();
   void transitToExecutingPath();
-  void transitToAvoidingObstacle();
   void transitToGoalReached();
   void transitToFailed();
   void transitToCompleted();
@@ -38,14 +36,6 @@ public:
   bool isCompleted() const { return current_state_ == NavFSMState::COMPLETED; }
   bool isFailed() const { return current_state_ == NavFSMState::FAILED; }
 
-  // Event trigger methods
-  void onGoalsReceived();
-  void onNavigationStart();
-  void onGoalReached();
-  void onObstacleDetected();
-  void onObstacleCleared();
-  void onError();
-  void onCompletion();
 
 private:
   NavFSMState current_state_;

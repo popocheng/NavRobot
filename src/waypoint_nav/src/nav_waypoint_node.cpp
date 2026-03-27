@@ -34,7 +34,7 @@ private:
   void controlLoop()
   {
     // Update navigation state based on FSM
-    auto nav_state = navigator_.getState();
+    // auto nav_state = navigator_.getState();  // Commented out since not used
 
     // Publish current state
     std_msgs::msg::String state_msg;
@@ -55,9 +55,6 @@ private:
       case NavFSMState::EXECUTING_PATH:
         handleExecutingPathState();
         break;
-      case NavFSMState::AVOIDING_OBSTACLE:
-        handleAvoidingObstacleState();
-        break;
       case NavFSMState::GOAL_REACHED:
         handleGoalReachedState();
         break;
@@ -73,15 +70,17 @@ private:
     if (fsm_.isNavigating()) {
       geometry_msgs::msg::Twist cmd_vel = navigator_.computeVelocityCommand();
 
-      // RCLCPP_DEBUG(this->get_logger(), "Publishing cmd_vel: linear.x=%.3f, angular.z=%.3f",
-      //             cmd_vel.linear.x, cmd_vel.angular.z);
-
-      // In a real implementation, you'd check for obstacles here and possibly modify cmd_vel
-      // For now, just publish the computed velocity
-      if (!cmd_vel_publisher_) {
-        cmd_vel_publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+      // Check if we should publish cmd_vel based on controller selection
+      if (navigator_.use_controller_server_) {
+        // When using controller server, we don't publish cmd_vel ourselves
+        // The external controller_server handles publishing
+      } else {
+        // When not using controller server, publish cmd_vel locally
+        if (!cmd_vel_publisher_) {
+          cmd_vel_publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+        }
+        cmd_vel_publisher_->publish(cmd_vel);
       }
-      cmd_vel_publisher_->publish(cmd_vel);
     }
 
     // Publish visualization markers
@@ -94,8 +93,11 @@ private:
 
     // Wait for waypoints to be received
     if (!navigator_.waypoints_.empty()) {
-      RCLCPP_INFO(this->get_logger(), "Waypoints received in IDLE, triggering onGoalsReceived");
-      fsm_.onGoalsReceived();
+      RCLCPP_INFO(this->get_logger(), "Waypoints received in IDLE, transitioning to INITIALIZING");
+      // Inline implementation of onGoalsReceived: if current state is WAITING_FOR_GOALS, transit to INITIALIZING
+      if (fsm_.getCurrentState() == NavFSMState::WAITING_FOR_GOALS) {
+        fsm_.transitToInitializing();
+      }
     }
   }
 
@@ -105,8 +107,11 @@ private:
 
     // Wait for goals to arrive
     if (!navigator_.waypoints_.empty()) {
-      RCLCPP_INFO(this->get_logger(), "Waypoints received in WAITING_FOR_GOALS, triggering onGoalsReceived");
-      fsm_.onGoalsReceived();  // This should transition to INITIALIZING
+      RCLCPP_INFO(this->get_logger(), "Waypoints received in WAITING_FOR_GOALS, transitioning to INITIALIZING");
+      // Inline implementation of onGoalsReceived: if current state is WAITING_FOR_GOALS, transit to INITIALIZING
+      if (fsm_.getCurrentState() == NavFSMState::WAITING_FOR_GOALS) {
+        fsm_.transitToInitializing();
+      }
     }
   }
 
@@ -134,34 +139,23 @@ private:
 
       if (navigator_.current_goal_index_ >= navigator_.waypoints_.size()) {
         // All goals completed
-        RCLCPP_INFO(this->get_logger(), "All goals completed, triggering onCompletion");
-        fsm_.onCompletion();
+        RCLCPP_INFO(this->get_logger(), "All goals completed, transitioning to COMPLETED");
+        // Inline implementation of onCompletion: transit to COMPLETED state
+        fsm_.transitToCompleted();
       } else {
         // Continue to next goal
         RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000 /*ms*/, "Continuing to next goal");
-        fsm_.onGoalReached();
+        // Inline implementation of onGoalReached: transit to GOAL_REACHED state
+        fsm_.transitToGoalReached();
 
         // Brief pause before moving to next goal, then continue executing
         fsm_.transitToExecutingPath();
       }
     }
 
-    // TODO: Check for obstacles using LiDAR data and transition to AVOIDING_OBSTACLE if needed
-    // As per the requirement: "/livox/lidar [sensor_msgs/msg/PointCloud2], used to implement basic obstacle avoidance after basic functions are realized"
-  }
-
-  void handleAvoidingObstacleState()
-  {
-    // TODO: Implement proper obstacle avoidance logic
-    // As mentioned in the requirements: "Call the local costmap of nav2 + local planner library"
-    // Use the local costmap with layers for point clouds and inflation layer
-    // as suggested: "only use one layer of radar point cloud layer + one layer of expansion layer"
-
-    // For now, assume obstacle is cleared after some time
-    // In reality, you'd check lidar data to confirm obstacle is cleared
-
-    // For demonstration, after some condition is met:
-    fsm_.onObstacleCleared();
+    // Obstacle detection and avoidance is now handled in the computeVelocityCommand method
+    // which is called in the controlLoop function. This keeps obstacle avoidance as part
+    // of the normal navigation rather than as a separate state, as required by the specifications.
   }
 
   void handleGoalReachedState()

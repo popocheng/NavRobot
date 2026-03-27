@@ -19,6 +19,8 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(msg_set_msgs REQUIRED)
+find_package(nav2_msgs REQUIRED)
+find_package(rclcpp_action REQUIRED)
 
 # Check for GeographicLib
 find_package(PkgConfig REQUIRED)
@@ -48,6 +50,8 @@ ament_target_dependencies(nav_core
   tf2
   tf2_ros
   msg_set_msgs
+  nav2_msgs
+  rclcpp_action
 )
 target_link_libraries(nav_core ${GeoLib_LIBRARIES})
 target_include_directories(nav_core PRIVATE ${GeoLib_INCLUDE_DIRS})
@@ -82,6 +86,8 @@ ament_target_dependencies(nav_waypoint_node
   tf2_ros
   message_filters
   msg_set_msgs
+  nav2_msgs
+  rclcpp_action
 )
 target_link_libraries(nav_waypoint_node
   nav_core
@@ -111,7 +117,9 @@ install(DIRECTORY config/
   DESTINATION share/${PROJECT_NAME}/config
 )
 
-ament_export_dependencies(ament_cmake)
+ament_export_dependencies(ament_cmake
+  nav2_msgs
+)
 ament_export_include_directories(include)
 ament_export_libraries(nav_core nav_fsm)
 ament_package()

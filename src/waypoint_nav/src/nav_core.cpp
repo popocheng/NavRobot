@@ -3,6 +3,9 @@
 
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/utils.h>
+#include "nav2_msgs/action/compute_path_to_pose.hpp"
+#include "nav2_msgs/action/follow_path.hpp"
+#include "rclcpp_action/create_client.hpp"
 
 namespace waypoint_nav {
 
@@ -12,7 +15,10 @@ WaypointNavigator::WaypointNavigator(rclcpp::Node* node_ptr)
   current_goal_index_(0),
   estimated_yaw_(0.0),
   initial_yaw_estimated_(false),
-  has_new_odom_data_(false)
+  has_new_odom_data_(false),
+  path_sent_to_controller_(false),
+  last_goal_index_sent_(0),
+  use_controller_server_(true)
 {
   // Declare parameters
   node_->declare_parameter("goal_tolerance", 1.0);
@@ -24,6 +30,11 @@ WaypointNavigator::WaypointNavigator(rclcpp::Node* node_ptr)
   node_->declare_parameter("origin_lat", 0.0);  // Origin latitude
   node_->declare_parameter("origin_lon", 0.0);  // Origin longitude
   node_->declare_parameter("origin_alt", 0.0);  // Origin altitude
+  node_->declare_parameter("use_controller_server", true);  // Use controller server for path following
+
+  // Navigation2 parameters
+  node_->declare_parameter("robot_base_frame", "base_link");
+  node_->declare_parameter("global_frame", "world");
 
   // Get parameters
   node_->get_parameter("goal_tolerance", goal_tolerance_);
@@ -35,6 +46,7 @@ WaypointNavigator::WaypointNavigator(rclcpp::Node* node_ptr)
   node_->get_parameter("origin_lat", origin_lat_);
   node_->get_parameter("origin_lon", origin_lon_);
   node_->get_parameter("origin_alt", origin_alt_);
+  node_->get_parameter("use_controller_server", use_controller_server_);
 
   RCLCPP_INFO(node_->get_logger(), "Waypoint Navigator initialized with parameters:");
   RCLCPP_INFO(node_->get_logger(), "goal_tolerance: %.2f", goal_tolerance_);
@@ -43,6 +55,7 @@ WaypointNavigator::WaypointNavigator(rclcpp::Node* node_ptr)
   RCLCPP_INFO(node_->get_logger(), "angular_velocity_limit: %.2f", angular_velocity_limit_);
   RCLCPP_INFO(node_->get_logger(), "control_frequency: %.2f", control_frequency_);
   RCLCPP_INFO(node_->get_logger(), "lookahead_distance: %.2f", lookahead_distance_);
+  RCLCPP_INFO(node_->get_logger(), "use_controller_server: %s", use_controller_server_ ? "true" : "false");
 
   // Initialize subscribers - subscribe to world_odom instead of direct GPS and IMU
   odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
@@ -69,6 +82,12 @@ WaypointNavigator::WaypointNavigator(rclcpp::Node* node_ptr)
   // Initialize the geographic converter with origin coordinates
   geo_converter_ = std::make_unique<GeographicLib::LocalCartesian>(origin_lat_, origin_lon_, origin_alt_);
 
+  // Initialize Navigation2 components
+  // Removed costmap initialization as per requirements
+
+  // Initialize action clients for Navigation2 services
+  follow_path_client_ = rclcpp_action::create_client<nav2_msgs::action::FollowPath>(node_, "follow_path");
+
   RCLCPP_INFO(node_->get_logger(), "Waypoint Navigator initialized with origin: lat=%.6f, lon=%.6f, alt=%.2f",
               origin_lat_, origin_lon_, origin_alt_);
 }
@@ -92,6 +111,9 @@ void WaypointNavigator::odomCallback(const nav_msgs::msg::Odometry::SharedPtr ms
 
   current_pose_.roll = tf2::getYaw(q);
 
+  // 这里计算 estimated_yaw_ 是为了 
+  // 1.computePurePursuitCommand（非避障模式），2.用于ActualPath近似计算（其实没必要）
+  // 3.后续用于和MultiGoal的对齐，目前MultiGoal没有传yaw，但以后如果有要求，则方便对齐yaw
   // Use the orientation from world_odom as the estimated yaw
   if (!initial_yaw_estimated_) {
     estimated_yaw_ = current_pose_.roll;
@@ -109,10 +131,7 @@ void WaypointNavigator::odomCallback(const nav_msgs::msg::Odometry::SharedPtr ms
 
 void WaypointNavigator::lidarCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
 {
-  // TODO: Process LiDAR data for obstacle detection and avoidance
-  // Integrate with nav2's costmap or implement local obstacle detection
-  // Based on the user requirement to use nav2's local costmap with spatio_temporal_voxel_layer
-
+  // Processing LiDAR data for potential future use
   RCLCPP_DEBUG(node_->get_logger(), "Received lidar data with %d points", msg->width);
 }
 
@@ -186,12 +205,25 @@ geometry_msgs::msg::Twist WaypointNavigator::computeVelocityCommand()
 
   const auto& current_goal = waypoints_[current_goal_index_];
 
-  // Use pure pursuit algorithm for path following
-  cmd_vel = computePurePursuitCommand(
-    current_pose_.x, current_pose_.y, estimated_yaw_,
-    current_goal.x_or_lat, current_goal.y_or_lon,
-    linear_velocity_, angular_velocity_limit_,
-    lookahead_distance_);
+  if (use_controller_server_) {
+    // Use controller server with follow_path_client_
+
+    // Check if we need to send a new path to the controller server
+    if (!path_sent_to_controller_ || current_goal_index_ != last_goal_index_sent_) {
+      if (sendPathToControllerServer()) {
+        path_sent_to_controller_ = true;
+        last_goal_index_sent_ = current_goal_index_;
+        RCLCPP_INFO(node_->get_logger(), "Sent new path to controller server for goal %zu", current_goal_index_);
+      }
+    }
+  } else {
+    // Use pure pursuit algorithm directly
+    cmd_vel = computePurePursuitCommand(
+      current_pose_.x, current_pose_.y, estimated_yaw_,
+      current_goal.x_or_lat, current_goal.y_or_lon,
+      linear_velocity_, angular_velocity_limit_,
+      lookahead_distance_);
+  }
 
   return cmd_vel;
 }
@@ -372,11 +404,6 @@ void WaypointNavigator::publishPathMarkers()
     arrow_marker.type = visualization_msgs::msg::Marker::ARROW;
     arrow_marker.action = visualization_msgs::msg::Marker::ADD;
 
-    // Calculate direction vector
-    double dx = next_wp.x_or_lat - current_wp.x_or_lat;
-    double dy = next_wp.y_or_lon - current_wp.y_or_lon;
-    double dz = next_wp.z_or_alt - current_wp.z_or_alt;
-
     // Arrow start and end points
     arrow_marker.points.resize(2);
     arrow_marker.points[0].x = current_wp.x_or_lat;
@@ -483,6 +510,99 @@ void WaypointNavigator::clearActualPath()
 {
   std::lock_guard<std::mutex> lock(path_mutex_);
   actual_path_.clear();
+}
+
+bool WaypointNavigator::sendPathToControllerServer()
+{
+  if (!follow_path_client_) {
+    RCLCPP_ERROR(node_->get_logger(), "Follow path client is not available");
+    return false;
+  }
+
+  // Check if action server is available
+  if (!follow_path_client_->wait_for_action_server(std::chrono::milliseconds(100))) {
+    RCLCPP_WARN(node_->get_logger(), "Follow path action server not available");
+    return false;
+  }
+
+  // Create a path from current position to the current goal
+  nav_msgs::msg::Path path_msg;
+  path_msg.header.frame_id = "world";
+  path_msg.header.stamp = node_->now();
+
+  // Add current robot pose as the start of the path
+  geometry_msgs::msg::PoseStamped start_pose;
+  start_pose.header = path_msg.header;
+  start_pose.pose.position.x = current_pose_.x;
+  start_pose.pose.position.y = current_pose_.y;
+  start_pose.pose.position.z = current_pose_.z;
+
+  // Set orientation to face towards the goal
+  const auto& current_goal = waypoints_[current_goal_index_];
+  double target_angle = std::atan2(current_goal.y_or_lon - current_pose_.y,
+                                  current_goal.x_or_lat - current_pose_.x);
+
+  tf2::Quaternion q;
+  q.setRPY(0, 0, target_angle);
+  start_pose.pose.orientation.x = q.x();
+  start_pose.pose.orientation.y = q.y();
+  start_pose.pose.orientation.z = q.z();
+  start_pose.pose.orientation.w = q.w();
+
+  path_msg.poses.push_back(start_pose);
+
+  // Add the target goal as the end of the path
+  geometry_msgs::msg::PoseStamped goal_pose;
+  goal_pose.header = path_msg.header;
+  goal_pose.pose.position.x = current_goal.x_or_lat;
+  goal_pose.pose.position.y = current_goal.y_or_lon;
+  goal_pose.pose.position.z = current_goal.z_or_alt;
+
+  // Calculate orientation for the goal pose (looking at the next goal if it exists)
+  double goal_orientation = target_angle;
+  if (current_goal_index_ + 1 < waypoints_.size()) {
+    const auto& next_goal = waypoints_[current_goal_index_ + 1];
+    goal_orientation = std::atan2(next_goal.y_or_lon - current_goal.y_or_lon,
+                                 next_goal.x_or_lat - current_goal.x_or_lat);
+  }
+
+  tf2::Quaternion goal_q;
+  goal_q.setRPY(0, 0, goal_orientation);
+  goal_pose.pose.orientation.x = goal_q.x();
+  goal_pose.pose.orientation.y = goal_q.y();
+  goal_pose.pose.orientation.z = goal_q.z();
+  goal_pose.pose.orientation.w = goal_q.w();
+
+  path_msg.poses.push_back(goal_pose);
+
+  // Send the path to the controller server
+  auto goal_msg = nav2_msgs::action::FollowPath::Goal();
+  goal_msg.path = path_msg;
+
+  auto send_goal_options = rclcpp_action::Client<nav2_msgs::action::FollowPath>::SendGoalOptions();
+
+  send_goal_options.result_callback =
+    [this](const rclcpp_action::ClientGoalHandle<nav2_msgs::action::FollowPath>::WrappedResult & result) {
+      switch (result.code) {
+        case rclcpp_action::ResultCode::SUCCEEDED:
+          RCLCPP_INFO(node_->get_logger(), "FollowPath action succeeded");
+          break;
+        case rclcpp_action::ResultCode::ABORTED:
+          RCLCPP_ERROR(node_->get_logger(), "FollowPath action was aborted");
+          break;
+        case rclcpp_action::ResultCode::CANCELED:
+          RCLCPP_WARN(node_->get_logger(), "FollowPath action was canceled");
+          break;
+        default:
+          RCLCPP_ERROR(node_->get_logger(), "FollowPath action failed with unknown result code");
+          break;
+      }
+    };
+
+  // Send the goal asynchronously
+  follow_path_client_->async_send_goal(goal_msg, send_goal_options);
+
+  return true;
 }
 
 }  // namespace waypoint_nav

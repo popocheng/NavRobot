@@ -1,31 +1,34 @@
-# Waypoint Navigation Package
+# 航路点导航包
 
-This package implements autonomous navigation for a robot dog that follows a sequence of waypoints. It integrates fused odometry data from GPS/IMU fusion with LiDAR data to achieve accurate navigation with obstacle avoidance.
+本包实现了机器人狗跟随一系列航路点的自主导航功能。它集成了来自GPS/IMU融合的定位数据，并提供了两种导航模式：使用外部controller_server进行路径规划的模式，或使用纯追踪算法直接导航的模式。
 
-## Features
+## 功能特性
 
-- **Integrated Positioning**: Uses fused world_odom data from GPS/IMU fusion for accurate positioning and orientation
-- **Waypoint Following**: Navigates through a sequence of coordinates
-- **Obstacle Avoidance**: Uses LiDAR data to detect and avoid obstacles (TO-DO)
-- **State Management**: Implements a finite state machine for navigation states
-- **Pure Pursuit Algorithm**: Path following algorithm for smooth navigation
+- **集成定位**：使用来自GPS/IMU融合的世界里程计数据进行精确定位和方向估计
+- **航路点跟随**：导航通过一系列坐标点
+- **双控制器模式**：支持通过参数切换使用外部controller_server（带障碍物避让）或纯追踪算法
+- **状态管理**：实现有限状态机管理导航状态
+- **可视化**：提供航路点、路径和实际轨迹的RViz可视化
 
-## Topics
+## 主要主题
 
-### Subscribed Topics
+### 订阅的主题
 
-- `/world_odom` (`nav_msgs/Odometry`) - Fused world odometry from GPS/IMU fusion
-- `/livox/lidar` (`sensor_msgs/PointCloud2`) - LiDAR point cloud data
-- `/waypoint_goals` (`msg_set_msgs/MultiGoal`) - Sequence of waypoints to follow
+- `/world_odom` (`nav_msgs/Odometry`) - 来自GPS/IMU融合的世界里程计数据
+- `/livox/lidar` (`sensor_msgs/PointCloud2`) - 激光雷达点云数据（供外部控制器使用）
+- `/waypoint_goals` (`msg_set_msgs/MultiGoal`) - 要跟随的一系列航路点
 
-### Published Topics
+### 发布的主题
 
-- `/cmd_vel` (`geometry_msgs/Twist`) - Velocity commands (linear x, y and angular z)
-- `/nav_status` (`std_msgs/String`) - Current navigation status
+- `/cmd_vel` (`geometry_msgs/Twist`) - 速度命令 (线性 x, y 和角 z)
+- `/nav_status` (`std_msgs/String`) - 当前导航状态
+- `/waypoint_markers` (`visualization_msgs/MarkerArray`) - 航路点标记
+- `/path_markers` (`visualization_msgs/MarkerArray`) - 路径标记
+- `/actual_path` (`nav_msgs/Path`) - 实际行驶路径
 
-## Usage
+## 使用方法
 
-### Building
+### 构建
 
 ```bash
 cd /path/to/robotdog_nav
@@ -33,60 +36,89 @@ colcon build --packages-select waypoint_nav
 source install/setup.bash
 ```
 
-### Running
+### 运行
 
 ```bash
 ros2 launch waypoint_nav waypoint_nav.launch.py
 ```
 
-### Sending Waypoints
+### 发送航路点
 
-To send a sequence of waypoints, publish to the `/waypoint_goals` topic:
+要发送一系列航路点，请发布到 `/waypoint_goals` 主题:
 
 ```bash
-# Example: Send waypoints via command line (you'll need to adapt to your message format)
+# 示例：通过命令行发送航路点 (需根据消息格式调整)
 ros2 topic pub /waypoint_goals msg_set_msgs/msg/MultiGoal "..."
 ```
 
-## Parameters
+## 参数
 
-- `goal_tolerance`: Distance tolerance to consider a goal reached (default: 1.0 m)
-- `yaw_tolerance`: Yaw angle tolerance for goal orientation (default: 0.2 rad)
-- `linear_velocity`: Constant linear velocity for navigation (default: 1.0 m/s)
-- `angular_velocity_limit`: Maximum angular velocity (default: 1.0 rad/s)
-- `control_frequency`: Control loop frequency (default: 10 Hz)
-- `lookahead_distance`: Lookahead distance for pure pursuit (default: 2.0 m)
+- `goal_tolerance`: 认为到达目标的距离容差 (默认: 1.0 m)
+- `yaw_tolerance`: 目标方向的角度容差 (默认: 0.8 rad)
+- `linear_velocity`: 导航的恒定线速度 (默认: 0.8 m/s)
+- `angular_velocity_limit`: 最大角速度 (默认: 1.0 rad/s)
+- `control_frequency`: 控制循环频率 (默认: 10 Hz)
+- `lookahead_distance`: 纯追踪的前瞻距离 (默认: 2.0 m)
+- `use_controller_server`: 是否使用外部controller_server进行路径规划和避障 (默认: true)
 
-## States
+## 状态
 
-The navigation system operates in the following states:
+导航系统在以下状态之间运行:
 
-- `IDLE`: Awaiting waypoint commands
-- `WAITING_FOR_GOALS`: Ready to receive goals
-- `INITIALIZING`: Initializing with fused odometry data
-- `EXECUTING_PATH`: Following the planned path
-- `AVOIDING_OBSTACLE`: Temporarily deviating to avoid obstacles (TO-DO)
-- `GOAL_REACHED`: Successfully reached a goal
-- `FAILED`: Navigation failed due to error
-- `COMPLETED`: All waypoints successfully navigated
+- `IDLE`: 等待航路点命令
+- `WAITING_FOR_GOALS`: 准备接收目标
+- `INITIALIZING`: 使用融合里程计数据进行初始化
+- `EXECUTING_PATH`: 跟随规划的路径
+- `GOAL_REACHED`: 成功到达目标
+- `FAILED`: 导航因错误失败
+- `COMPLETED`: 所有航路点成功完成
 
-## Architecture
+## 系统架构
 
-The package consists of:
+该包由以下组件组成:
 
-- `WaypointNavigator`: Core navigation logic using fused odometry
-- `NavigationFSM`: Finite state machine for managing navigation states
-- `Utils`: Utility functions for mathematical calculations and path planning
-- `NavWaypointNode`: Main ROS2 node that orchestrates the navigation process
+- `WaypointNavigator`: 使用融合里程计的核心导航逻辑
+- `NavigationFSM`: 管理导航状态的有限状态机
+- `Utils`: 数学计算和路径规划的实用函数
+- `NavWaypointNode`: 协调导航过程的主要ROS2节点
 
-## Unfinished/Planned Features
+## 控制器模式
 
-The following features are not yet implemented but planned:
+包支持两种导航控制器模式，通过 `use_controller_server` 参数进行切换:
 
-1. **LiDAR-based Obstacle Detection and Avoidance**: Currently, the LiDAR data is subscribed but not processed for obstacle avoidance.
-2. **Integration with nav2 libraries**: The original plan mentioned using nav2's local costmap with spatio_temporal_voxel_layer for advanced obstacle processing.
-3. **Advanced Path Planning**: Implementing local replanning when obstacles are detected.
-4. **Improved Integration with Global2Local Package**: Full integration with the existing global2local package for more sophisticated transformations.
-5. **More Robust State Transitions**: Handling edge cases in state machine transitions.
-6. **Service Interface**: Implementing a service for querying navigation status or resetting the navigation system.
-7. **Parameter Tuning**: Fine-tuning parameters for different robot dynamics and environments.
+- **外部Controller Server模式** (use_controller_server: true): 导航器将路径发送给外部启动的controller_server，由其执行路径规划和避障
+- **纯追踪模式** (use_controller_server: false): 直接使用纯追踪算法计算速度命令
+
+## 算法逻辑流程图
+
+### 数据流层面
+```
+传感器数据处理线程:
+├── /world_odom → 机器人位置更新
+├── /livox/lidar → 激光雷达数据（供外部控制器使用）
+└── /waypoint_goals → 航路点序列更新
+```
+
+### 控制决策层面
+```
+主控制循环:
+┌─────────────────────────────────────────────────────────────────┐
+│                    导航状态管理 (FSM)                            │
+│  管理IDLE, WAITING_FOR_GOALS, INITIALIZING等状态                 │
+└─────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              控制器选择 (根据参数配置)                           │
+│  输入: use_controller_server 参数                              │
+│  │                                                             │
+│  ├─ true → 将路径发送给外部controller_server                   │
+│  └─ false → 使用纯追踪算法直接计算速度命令                      │
+└─────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   速度指令输出                                  │
+│              → /cmd_vel (线性速度, 角速度)                      │
+└─────────────────────────────────────────────────────────────────┘
+```

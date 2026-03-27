@@ -40,14 +40,6 @@ void NavigationFSM::transitToExecutingPath()
   }
 }
 
-void NavigationFSM::transitToAvoidingObstacle()
-{
-  if (current_state_ != NavFSMState::AVOIDING_OBSTACLE) {
-    RCLCPP_INFO(rclcpp::get_logger("NavigationFSM"), "Transitioning to AVOIDING_OBSTACLE state");
-    current_state_ = NavFSMState::AVOIDING_OBSTACLE;
-  }
-}
-
 void NavigationFSM::transitToGoalReached()
 {
   if (current_state_ != NavFSMState::GOAL_REACHED) {
@@ -83,8 +75,6 @@ std::string NavigationFSM::getStateAsString() const
       return "INITIALIZING";
     case NavFSMState::EXECUTING_PATH:
       return "EXECUTING_PATH";
-    case NavFSMState::AVOIDING_OBSTACLE:
-      return "AVOIDING_OBSTACLE";
     case NavFSMState::GOAL_REACHED:
       return "GOAL_REACHED";
     case NavFSMState::FAILED:
@@ -100,52 +90,7 @@ bool NavigationFSM::isNavigating() const
 {
   return current_state_ == NavFSMState::INITIALIZING ||
          current_state_ == NavFSMState::EXECUTING_PATH ||
-         current_state_ == NavFSMState::AVOIDING_OBSTACLE ||
          current_state_ == NavFSMState::GOAL_REACHED;
-}
-
-void NavigationFSM::onGoalsReceived()
-{
-  if (current_state_ == NavFSMState::WAITING_FOR_GOALS) {
-    transitToInitializing();
-  }
-}
-
-void NavigationFSM::onNavigationStart()
-{
-  if (current_state_ == NavFSMState::INITIALIZING) {
-    transitToExecutingPath();
-  }
-}
-
-void NavigationFSM::onGoalReached()
-{
-  transitToGoalReached();
-  // After a brief pause or additional processing, might continue to next goal or complete
-}
-
-void NavigationFSM::onObstacleDetected()
-{
-  if (current_state_ == NavFSMState::EXECUTING_PATH) {
-    transitToAvoidingObstacle();
-  }
-}
-
-void NavigationFSM::onObstacleCleared()
-{
-  if (current_state_ == NavFSMState::AVOIDING_OBSTACLE) {
-    transitToExecutingPath();
-  }
-}
-
-void NavigationFSM::onError()
-{
-  transitToFailed();
-}
-
-void NavigationFSM::onCompletion()
-{
-  transitToCompleted();
 }
 
 }  // namespace waypoint_nav
