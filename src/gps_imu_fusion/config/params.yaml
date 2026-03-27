@@ -1,0 +1,18 @@
+# Parameters for GPS/IMU fusion node
+
+gps_imu_fusion_node:
+  ros__parameters:
+    # Origin coordinates for local coordinate system
+    # origin_lat: 37.7749  # Latitude of origin point
+    # origin_lon: -122.4194  # Longitude of origin point
+    # origin_alt: 0.0  # Altitude of origin point
+
+    origin_lat: 0.0  # Latitude of origin point
+    origin_lon: 0.0  # Longitude of origin point
+    origin_alt: 0.0  # Altitude of origin point
+
+    # Yaw offset for compass heading correction (in radians)
+    yaw_offset: 3.14159  # Compass yaw offset in radians
+
+    # Whether to use only yaw from IMU (discard roll and pitch)
+    use_yaw_only: true  # Set to true to extract only yaw from IMU, false to use full orientation
