@@ -76,6 +76,9 @@ def generate_launch_description():
                 'config',
                 'params.yaml'
             )
+        ],
+        remappings=[
+            # ('/world_odom', '/mavros/local_position/odom'), 
         ]
     )
 
