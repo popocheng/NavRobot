@@ -3,12 +3,14 @@ from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 from launch.substitutions import LaunchConfiguration
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition, UnlessCondition
 import os
 
 
 def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     params_file = LaunchConfiguration('params_file')
+    simulation = LaunchConfiguration('simulation')
 
     declare_use_sim_time_argument = DeclareLaunchArgument(
         'use_sim_time',
@@ -23,6 +25,11 @@ def generate_launch_description():
             'params.yaml'
         ),
         description='Full path to the ROS2 parameters file to use for all launched nodes')
+
+    declare_simulation_argument = DeclareLaunchArgument(
+        'simulation',
+        default_value='true',
+        description='Enable simulation mode')
 
     gps_imu_fusion_node = Node(
         package='gps_imu_fusion',
@@ -93,13 +100,27 @@ def generate_launch_description():
                     {'node_names': ['controller_server']}]
     )
 
+    # Static transform publisher for base_link to livox in non-simulation mode
+    static_tf_publisher = Node(
+        condition=UnlessCondition(simulation),  # Only run when simulation is false
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='base_link_to_livox_static_tf_publisher',
+        output='screen',
+        arguments=['--x', '0.0', '--y', '0.0', '--z', '0.1',
+                   '--roll', '0.0', '--pitch', '0.0', '--yaw', '0.0',
+                   '--frame-id', 'base_link', '--child-frame-id', 'livox']
+    )
+
     return LaunchDescription([
         declare_use_sim_time_argument,
         declare_params_file_argument,
+        declare_simulation_argument,
         gps_imu_fusion_node,
         rviz_node,
         # External Nav2 controller server
         controller_server_node,
         waypoint_nav_node,
-        lifecycle_manager
+        lifecycle_manager,
+        static_tf_publisher
     ])

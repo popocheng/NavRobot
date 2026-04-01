@@ -10,6 +10,9 @@ gps_imu_fusion_node:
     origin_lat: 0.0  # Latitude of origin point
     origin_lon: 0.0  # Longitude of origin point
     origin_alt: 0.0  # Altitude of origin point
+    # origin_lat: 47.3667
+    # origin_lon: 8.55000
+    # origin_alt: 500.258947
 
     # Yaw offset for compass heading correction (in radians)
     yaw_offset: 3.14159  # Compass yaw offset in radians
