@@ -6,6 +6,7 @@
 #include "nav2_msgs/action/compute_path_to_pose.hpp"
 #include "nav2_msgs/action/follow_path.hpp"
 #include "rclcpp_action/create_client.hpp"
+#include "geographic_msgs/msg/geo_point_stamped.hpp"
 
 namespace waypoint_nav {
 
@@ -88,6 +89,11 @@ WaypointNavigator::WaypointNavigator(rclcpp::Node* node_ptr)
     "/waypoint_goals", 10,
     std::bind(&WaypointNavigator::goalCallback, this, std::placeholders::_1));
 
+  // Subscribe to mavros GPS origin topic
+  gps_origin_sub_ = node_->create_subscription<geographic_msgs::msg::GeoPointStamped>(
+    "/mavros/global_position/gp_origin", 10,
+    std::bind(&WaypointNavigator::gpsOriginCallback, this, std::placeholders::_1));
+
   // Initialize publishers
   cmd_vel_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
   status_pub_ = node_->create_publisher<std_msgs::msg::String>("/nav_status", 10);
@@ -151,6 +157,22 @@ void WaypointNavigator::lidarCallback(const sensor_msgs::msg::PointCloud2::Share
 {
   // Processing LiDAR data for potential future use
   RCLCPP_DEBUG(node_->get_logger(), "Received lidar data with %d points", msg->width);
+}
+
+void WaypointNavigator::gpsOriginCallback(const geographic_msgs::msg::GeoPointStamped::SharedPtr msg)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  // 更新原点坐标
+  origin_lat_ = msg->position.latitude;
+  origin_lon_ = msg->position.longitude;
+  origin_alt_ = msg->position.altitude;
+
+  // 重新初始化地理转换器以使用新的原点
+  geo_converter_ = std::make_unique<GeographicLib::LocalCartesian>(origin_lat_, origin_lon_, origin_alt_);
+
+  RCLCPP_INFO(node_->get_logger(), "GPS origin updated: lat=%.6f, lon=%.6f, alt=%.2f",
+              origin_lat_, origin_lon_, origin_alt_);
 }
 
 void WaypointNavigator::goalCallback(const msg_set_msgs::msg::MultiGoal::SharedPtr msg)

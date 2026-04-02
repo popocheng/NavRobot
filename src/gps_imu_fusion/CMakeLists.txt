@@ -50,9 +50,9 @@ install(TARGETS
 )
 
 # Install header files
-install(DIRECTORY include/
-  DESTINATION include/${PROJECT_NAME}
-)
+# install(DIRECTORY include/
+#   DESTINATION include/${PROJECT_NAME}
+# )
 
 # Install launch files
 install(DIRECTORY launch/

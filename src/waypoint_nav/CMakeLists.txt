@@ -21,6 +21,7 @@ find_package(message_filters REQUIRED)
 find_package(msg_set_msgs REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(rclcpp_action REQUIRED)
+find_package(geographic_msgs REQUIRED)
 
 # Check for GeographicLib
 find_package(PkgConfig REQUIRED)
@@ -52,6 +53,7 @@ ament_target_dependencies(nav_core
   msg_set_msgs
   nav2_msgs
   rclcpp_action
+  geographic_msgs
 )
 target_link_libraries(nav_core ${GeoLib_LIBRARIES})
 target_include_directories(nav_core PRIVATE ${GeoLib_INCLUDE_DIRS})
@@ -88,6 +90,7 @@ ament_target_dependencies(nav_waypoint_node
   msg_set_msgs
   nav2_msgs
   rclcpp_action
+  geographic_msgs
 )
 target_link_libraries(nav_waypoint_node
   nav_core

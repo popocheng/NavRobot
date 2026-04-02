@@ -23,6 +23,7 @@
 # include "visualization_msgs/msg/marker_array.hpp"
 # include "nav_msgs/msg/path.hpp"
 # include "rclcpp_action/client.hpp"
+# include "geographic_msgs/msg/geo_point_stamped.hpp"
 
 // Navigation2 includes
 # include "nav2_msgs/action/navigate_to_pose.hpp"
@@ -78,6 +79,7 @@ private:
   void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
   void lidarCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
   void goalCallback(const msg_set_msgs::msg::MultiGoal::SharedPtr msg);
+  void gpsOriginCallback(const geographic_msgs::msg::GeoPointStamped::SharedPtr msg);
 
   // Helper methods
   void updateRobotPose();
@@ -93,6 +95,7 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr lidar_sub_;
   rclcpp::Subscription<msg_set_msgs::msg::MultiGoal>::SharedPtr goal_sub_;
+  rclcpp::Subscription<geographic_msgs::msg::GeoPointStamped>::SharedPtr gps_origin_sub_;
 
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
