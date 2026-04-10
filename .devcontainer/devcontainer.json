@@ -1,0 +1,36 @@
+{
+    "name": "QuadBot Gazebo Development",
+    "image": "dddmr_gz:20260407_05",
+    "workspaceFolder": "/workspace",
+    // "workspaceMount": "source=/media/nhy/office/Gazebo/0403/robotdog_nav,target=/workspace,type=bind",
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+    "runArgs": [
+        "--privileged",
+        "--network=host",
+        "--gpus=all",
+        "-e", "DISPLAY=${localEnv:DISPLAY}",
+        "-e", "QT_X11_NO_MITSHM=1",
+        "-v", "/tmp/.X11-unix:/tmp/.X11-unix:rw"
+    ],
+    "containerEnv": {
+        "DISPLAY": "${localEnv:DISPLAY}",
+        "GAZEBO_MODEL_PATH": "/workspace/models:${containerEnv:GAZEBO_MODEL_PATH}",
+        "ROS_PACKAGE_PATH": "/workspace/src:${containerEnv:ROS_PACKAGE_PATH}"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-iot.vscode-ros",
+                "ms-vscode.cpptools",
+                "redhat.vscode-yaml"
+            ],
+            "settings": {
+                "terminal.integrated.defaultProfile.linux": "bash"
+            }
+        }
+    },
+    "postCreateCommand": "chmod +x /workspace/.devcontainer/setup_gpu.sh && /workspace/.devcontainer/setup_gpu.sh",
+    "postStartCommand": "test -f /usr/share/glvnd/egl_vendor.d/10_nvidia.json || /workspace/.devcontainer/setup_gpu.sh",
+    "remoteUser": "root"
+}
