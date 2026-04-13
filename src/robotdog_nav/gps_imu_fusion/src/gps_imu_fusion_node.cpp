@@ -1,6 +1,7 @@
 #include <memory>
 #include <vector>
 #include <mutex>
+#include <cmath>
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
@@ -31,12 +32,23 @@ public:
     this->declare_parameter("yaw_offset", 0.0);  // Yaw offset in radians
     this->declare_parameter("use_yaw_only", false);  // Whether to extract only yaw from IMU
 
+    // Complementary filter parameters for roll/pitch estimation
+    this->declare_parameter("use_complementary_filter", true);  // Use complementary filter for roll/pitch
+    this->declare_parameter("complementary_filter_alpha", 0.98);  // Filter gain: alpha * gyro + (1-alpha) * accel
+
     // Get parameters
     this->get_parameter("origin_lat", origin_lat_);
     this->get_parameter("origin_lon", origin_lon_);
     this->get_parameter("origin_alt", origin_alt_);
     this->get_parameter("yaw_offset", yaw_offset_);
     this->get_parameter("use_yaw_only", use_yaw_only_);
+    this->get_parameter("use_complementary_filter", use_complementary_filter_);
+    this->get_parameter("complementary_filter_alpha", complementary_filter_alpha_);
+
+    // Initialize complementary filter state
+    filter_roll_ = 0.0;
+    filter_pitch_ = 0.0;
+    last_imu_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
 
     // Initialize GeographicLib converter
     geo_converter_.reset(new GeographicLib::LocalCartesian(origin_lat_, origin_lon_, origin_alt_));
@@ -105,6 +117,43 @@ private:
 
       // Create a quaternion with only yaw component (zero roll and pitch)
       result_quat.setRPY(0, 0, yaw + yaw_offset_);
+    } else if (use_complementary_filter_) {
+      // Use complementary filter to estimate roll/pitch from accelerometer + gyroscope
+      double roll_acc, pitch_acc, yaw_acc;
+      tf2::Matrix3x3(imu_quat).getRPY(roll_acc, pitch_acc, yaw_acc);
+
+      // Extract angular velocity from IMU
+      double wx = msg->angular_velocity.x;
+      double wy = msg->angular_velocity.y;
+      double wz = msg->angular_velocity.z;
+
+      // Compute time delta
+      rclcpp::Time current_time = msg->header.stamp;
+      double dt = 0.0;
+      if (last_imu_time_.nanoseconds() > 0) {
+        dt = (current_time - last_imu_time_).seconds();
+      }
+      last_imu_time_ = current_time;
+
+      // Clamp dt to avoid instability
+      if (dt <= 0.0 || dt > 0.1) {
+        dt = 0.01;  // Default to 100Hz if invalid
+      }
+
+      // Gyroscope integration: predict roll/pitch from angular rates
+      // Using small-angle approximation: delta_angle = omega * dt
+      double roll_gyro = filter_roll_ + (wx * std::cos(filter_pitch_) + wz * std::sin(filter_pitch_)) * dt;
+      double pitch_gyro = filter_pitch_ + (-wy * std::cos(filter_roll_) + wz * std::sin(filter_roll_)) * dt;
+
+      // Complementary filter: blend gyro prediction with accelerometer measurement
+      double alpha = complementary_filter_alpha_;
+      filter_roll_ = alpha * roll_gyro + (1.0 - alpha) * roll_acc;
+      filter_pitch_ = alpha * pitch_gyro + (1.0 - alpha) * pitch_acc;
+
+      // Extract yaw from IMU orientation (not from complementary filter, as yaw needs magnetometer)
+      double yaw = yaw_acc + yaw_offset_;
+
+      result_quat.setRPY(filter_roll_, filter_pitch_, yaw);
     } else {
       // Apply yaw offset to the IMU orientation as before
       tf2::Quaternion yaw_quat;
@@ -224,6 +273,13 @@ private:
   double origin_alt_{0.0};
   double yaw_offset_{0.0};  // Yaw offset in radians
   bool use_yaw_only_{false};  // Whether to extract only yaw from IMU
+
+  // Complementary filter state
+  bool use_complementary_filter_{true};  // Whether to use complementary filter for roll/pitch
+  double complementary_filter_alpha_{0.98};  // Filter gain
+  double filter_roll_{0.0};  // Filtered roll angle
+  double filter_pitch_{0.0};  // Filtered pitch angle
+  rclcpp::Time last_imu_time_{0, 0, RCL_ROS_TIME};  // Last IMU timestamp for dt calculation
 
   // GeographicLib converter
   std::unique_ptr<GeographicLib::LocalCartesian> geo_converter_;

@@ -18,4 +18,10 @@ gps_imu_fusion_node:
     yaw_offset: 3.14159  # Compass yaw offset in radians
 
     # Whether to use only yaw from IMU (discard roll and pitch)
-    use_yaw_only: true  # Set to true to extract only yaw from IMU, false to use full orientation
+    # Set to false to enable complementary filter for roll/pitch estimation
+    use_yaw_only: false
+
+    # Complementary filter for roll/pitch estimation (fuses accelerometer + gyroscope)
+    # This provides dynamic roll/pitch tracking that follows actual body tilt
+    use_complementary_filter: true
+    complementary_filter_alpha: 0.98  # Filter gain: 0.98*gyro + 0.02*accel (higher = trust gyro more)
