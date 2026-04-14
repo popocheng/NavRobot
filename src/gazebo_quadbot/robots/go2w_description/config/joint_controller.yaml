@@ -1,7 +1,7 @@
 controller_manager:
   ros__parameters:
     use_sim_time: True
-    update_rate: 200 # Hz
+    update_rate: 250 # Hz  # 与 go2_config 保持一致
 
     joint_group_effort_controller:
       type: joint_trajectory_controller/JointTrajectoryController
@@ -129,8 +129,8 @@ joint_group_velocity_controller:
       - RR_foot_joint
 
     # interface_name: velocity
-    command_interfaces: 
-      - effort
+    command_interfaces:
+      - velocity  # 修正：与 URDF 配置一致
     state_interfaces:
       - position
       - velocity

@@ -28,9 +28,9 @@ class HybridMotionController(Node):
         ]
         
         # 轮子速度参数
-        self.wheel_radius = 0.05   # 轮子半径（米）
-        self.wheel_base = 0.3      # 轮子间距
-        self.wheel_track = 0.2     # 轮子轴距
+        self.wheel_radius = 0.085   # 轮子半径（米）- 与 URDF go2w_const.xacro 一致
+        self.wheel_base = 0.3       # 轮子间距（左右轮距离）
+        self.wheel_track = 0.2      # 轮子轴距（前后轮距离）
         
         self.get_logger().info('混合运动控制器已启动')
     
@@ -74,23 +74,26 @@ class HybridMotionController(Node):
         self.get_logger().info(f'轮子控制发布: {wheel_speeds}')
     
     def calculate_wheel_speeds(self, linear_x, linear_y, angular_z):
-        """计算轮子速度（差速驱动）"""
-        # 差速驱动模型
+        """计算轮子速度（四轮差速驱动模型）
+        
+        Go2W 是四轮差速驱动，左右轮各自同速：
+        - 左侧两轮（FL, RL）速度相同
+        - 右侧两轮（FR, RR）速度相同
+        - 横向运动 linear_y 由腿部处理，轮子不处理
+        """
+        # 差速驱动模型：左右轮速度
         v_left = linear_x - angular_z * self.wheel_base / 2
         v_right = linear_x + angular_z * self.wheel_base / 2
         
-        # 考虑横向运动（全向轮模型简化）
-        v_front = linear_y + angular_z * self.wheel_track / 2
-        v_rear = linear_y - angular_z * self.wheel_track / 2
-        
         # 转换为轮子角速度（rad/s）
+        # 左侧两轮同速，右侧两轮同速
         wheel_speeds = [
-            (v_left + v_front) / self.wheel_radius,   # FL
-            (v_right + v_front) / self.wheel_radius,  # FR
-            (v_left + v_rear) / self.wheel_radius,    # RL
-            (v_right + v_rear) / self.wheel_radius    # RR
+            v_left / self.wheel_radius,    # FL 左前
+            v_right / self.wheel_radius,   # FR 右前
+            v_left / self.wheel_radius,    # RL 左后
+            v_right / self.wheel_radius    # RR 右后
         ]
-        
+
         return wheel_speeds
 
 def main(args=None):

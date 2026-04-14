@@ -229,6 +229,8 @@
     <gazebo reference="${prefix}_foot">
         <mu1>3</mu1>
         <mu2>3</mu2>
+        <kp>10000.0</kp>
+        <kd>1.0</kd>
     </gazebo>
 
   </xacro:macro>
