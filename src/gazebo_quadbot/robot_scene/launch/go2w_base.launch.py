@@ -15,6 +15,12 @@ def generate_launch_description():
     xacro_file = PathJoinSubstitution([pkg_robot_scene, "xacro", "go2w_description.urdf.xacro"])
     controller_yaml = PathJoinSubstitution([pkg_go2w, "config", "joint_controller.yaml"])
 
+    # 添加 spawn 位置参数声明（与 Go2 一致）
+    declare_world_init_x = DeclareLaunchArgument("world_init_x", default_value="0.0")
+    declare_world_init_y = DeclareLaunchArgument("world_init_y", default_value="0.0")
+    declare_world_init_z = DeclareLaunchArgument("world_init_z", default_value="0.70")
+    declare_world_init_heading = DeclareLaunchArgument("world_init_heading", default_value="0.0")
+
     declare_world = DeclareLaunchArgument(
         name="world",
         default_value="default.world",
@@ -55,9 +61,6 @@ def generate_launch_description():
                 FindPackageShare("gazebo_ros"), "/launch", "/gzserver.launch.py"
             ]),
             launch_arguments={
-                # "world": PathJoinSubstitution([
-                #     pkg_robot_scene, "worlds", "Building.world"
-                # ]),
                 "world": LaunchConfiguration("world"),
                 'extra_gazebo_args': '--disable-online-model-retrieval --disable-audio',
             }.items()
@@ -80,29 +83,23 @@ def generate_launch_description():
         ]
     )
 
+    # 使用 LaunchConfiguration 参数而不是硬编码值
     spawn_entity_node = Node(
         package="gazebo_ros",
         executable="spawn_entity.py",
         arguments=[
             "-entity", "go2w",
             "-topic", "robot_description",
-            "-x", "0",
-            "-y", "0",
-            "-z", "0.45",#设置为0.45防止弹飞
+            "-x", LaunchConfiguration("world_init_x"),
+            "-y", LaunchConfiguration("world_init_y"),
+            "-z", LaunchConfiguration("world_init_z"),
+            "-R", "0",
+            "-P", "0",
+            "-Y", LaunchConfiguration("world_init_heading"),
         ],
         output="screen",
         parameters=[{"use_sim_time": True}]
     )
-
-    # ros2_control_node = Node(
-    #     package="controller_manager",
-    #     executable="ros2_control_node",
-    #     parameters=[
-    #         controller_yaml,
-    #         {"use_sim_time": True}
-    #     ],
-    #     output="screen"
-    # )
 
     joint_state_broadcaster_spawner = Node(
         package="controller_manager",
@@ -132,15 +129,21 @@ def generate_launch_description():
         mesa_adapter,
         gazebo_gpu_rendering,
         declare_world,
+        declare_world_init_x,
+        declare_world_init_y,
+        declare_world_init_z,
+        declare_world_init_heading,
         gzserver_launch,
         gzclient_launch,
         robot_state_publisher_node,
+        # 减少延迟到 2 秒（原 15 秒太长导致控制器未及时启动）
         TimerAction(
-            period=15.0,#20.0 #设置为0.45防止弹飞
-            actions=[spawn_entity_node,
-                    joint_state_broadcaster_spawner,
-                    joint_group_effort_controller_spawner,
-                    joint_group_velocity_controller_spawner,]
+            period=2.0,
+            actions=[
+                spawn_entity_node,
+                joint_state_broadcaster_spawner,
+                joint_group_effort_controller_spawner,
+                joint_group_velocity_controller_spawner,
+            ]
         ),
-        # ros2_control_node,
     ])
