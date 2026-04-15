@@ -18,7 +18,7 @@ def generate_launch_description():
     # 添加 spawn 位置参数声明（与 Go2 一致）
     declare_world_init_x = DeclareLaunchArgument("world_init_x", default_value="0.0")
     declare_world_init_y = DeclareLaunchArgument("world_init_y", default_value="0.0")
-    declare_world_init_z = DeclareLaunchArgument("world_init_z", default_value="0.70")
+    declare_world_init_z = DeclareLaunchArgument("world_init_z", default_value="0.75")
     declare_world_init_heading = DeclareLaunchArgument("world_init_heading", default_value="0.0")
 
     declare_world = DeclareLaunchArgument(
