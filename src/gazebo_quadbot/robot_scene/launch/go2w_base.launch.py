@@ -136,14 +136,20 @@ def generate_launch_description():
         gzserver_launch,
         gzclient_launch,
         robot_state_publisher_node,
-        # 减少延迟到 2 秒（原 15 秒太长导致控制器未及时启动）
+        # 先启动控制器（延迟 1 秒让它们初始化）
         TimerAction(
-            period=2.0,
+            period=1.0,
             actions=[
-                spawn_entity_node,
                 joint_state_broadcaster_spawner,
                 joint_group_effort_controller_spawner,
                 joint_group_velocity_controller_spawner,
+            ]
+        ),
+        # 再 spawn 机器人（延迟 3 秒，确保控制器完全就绪）
+        TimerAction(
+            period=3.0,
+            actions=[
+                spawn_entity_node,
             ]
         ),
     ])
