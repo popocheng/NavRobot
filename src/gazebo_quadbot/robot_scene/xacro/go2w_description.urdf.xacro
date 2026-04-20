@@ -227,10 +227,11 @@
       <limit effort="${foot_torque_max}" velocity="${foot_velocity_max}" />
     </joint>
     <gazebo reference="${prefix}_foot">
+        <!-- [MODIFIED] 增加 kp 防止轮子陷入地面 -->
         <mu1>0.6</mu1>
         <mu2>0.6</mu2>
-        <kp>10000.0</kp>
-        <kd>1.0</kd>
+        <kp>50000.0</kp>     <!-- 增加刚度 (原 10000) -->
+        <kd>100.0</kd>       <!-- 增加阻尼 (原 1.0) -->
     </gazebo>
 
   </xacro:macro>
